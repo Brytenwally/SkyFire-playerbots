@@ -1,5 +1,7 @@
--- Preferred mount spells per bot character (characters database).
--- Applied automatically on module load via CREATE TABLE IF NOT EXISTS;
+-- characters database
+-- Preferred mount spells per bot character.
+-- Apply to the characters DB (not world/auth).
+-- Also created automatically on module load via CREATE TABLE IF NOT EXISTS;
 -- this file is the reference schema for tooling / manual apply.
 
 CREATE TABLE IF NOT EXISTS `playerbots_preferred_mounts` (

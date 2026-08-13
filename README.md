@@ -119,6 +119,19 @@ library and linked into `worldserver` automatically.
 Copy `playerbots.conf.dist` to `playerbots.conf` next to `worldserver.conf`
 (the build also stages a copy next to the binary) and set `Playerbots.Enable = 1`.
 
+## Database (SQL)
+
+Module SQL lives under `sql/` and is **not** applied by the core updater. Apply
+files to the matching database:
+
+| Path | Database |
+|------|----------|
+| [`sql/characters/playerbots_preferred_mounts.sql`](sql/characters/playerbots_preferred_mounts.sql) | **characters** |
+
+Preferred mounts: the table is also created at runtime with
+`CREATE TABLE IF NOT EXISTS` on module load, so a fresh characters DB will not
+error. Keep the SQL file for tooling, backups, and manual apply.
+
 ## Why this is a port, not a drop-in
 
 The upstream module targets AzerothCore, which is WotLK (3.3.5a). SkyFire is
