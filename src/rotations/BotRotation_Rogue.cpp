@@ -1,13 +1,13 @@
 /*
  * Assassination / Combat / Subtlety — modules/mod-playerbots/rotation.md
  * Unknown (low-level) spells are skipped via CanTryCast.
+ *
+ * MoP poisons coat all weapons via player auras: one Lethal + one Non-Lethal.
+ * Do not treat them like shaman per-weapon imbues.
  */
 
 #include "BotRotationLists.h"
-#include "Item.h"
-#include "ItemPrototype.h"
 #include "Player.h"
-#include "SharedDefines.h"
 #include "Unit.h"
 
 namespace BotRotation
@@ -16,7 +16,14 @@ namespace
 {
     enum RogueSpells : uint32
     {
+        // Lethal poisons (only one may be active)
         DEADLY_POISON       = 2823,
+        WOUND_POISON        = 8679,
+        // Non-lethal poisons (only one may be active)
+        CRIPPLING_POISON    = 3408,
+        LEECHING_POISON     = 108211,
+        PARALYTIC_POISON    = 108215,
+
         MUTILATE            = 1329,
         RUPTURE             = 1943,
         ENVENOM             = 32645,
@@ -30,13 +37,37 @@ namespace
         BACKSTAB            = 53,
     };
 
-    bool HasMainhandWeaponImbue(Player* bot)
+    bool HasLethalPoison(Player* bot)
+    {
+        return HasAuraUp(bot, DEADLY_POISON) || HasAuraUp(bot, WOUND_POISON);
+    }
+
+    bool HasNonLethalPoison(Player* bot)
+    {
+        return HasAuraUp(bot, CRIPPLING_POISON)
+            || HasAuraUp(bot, LEECHING_POISON)
+            || HasAuraUp(bot, PARALYTIC_POISON);
+    }
+
+    // Prefer Deadly (lethal) + Crippling/Leeching (non-lethal). Never apply a
+    // second lethal when one is already up.
+    uint32 SelectPoisonBuff(Player* bot, bool preferLeeching)
     {
         if (!bot)
-            return false;
-        if (Item* mh = bot->GetWeaponForAttack(WeaponAttackType::BASE_ATTACK))
-            return mh->GetEnchantmentId(TEMP_ENCHANTMENT_SLOT) != 0;
-        return false;
+            return 0;
+
+        if (!HasLethalPoison(bot) && CanTryCast(bot, DEADLY_POISON))
+            return DEADLY_POISON;
+
+        if (!HasNonLethalPoison(bot))
+        {
+            if (preferLeeching && CanTryCast(bot, LEECHING_POISON))
+                return LEECHING_POISON;
+            if (CanTryCast(bot, CRIPPLING_POISON))
+                return CRIPPLING_POISON;
+        }
+
+        return 0;
     }
 }
 
@@ -49,9 +80,8 @@ uint32 SelectAssassination(Context const& ctx)
 
     int8 const cp = ctx.comboPoints;
 
-    // Buff: Deadly Poison
-    if (!HasMainhandWeaponImbue(bot) && CanTryCast(bot, DEADLY_POISON))
-        return DEADLY_POISON;
+    if (uint32 const poison = SelectPoisonBuff(bot, true))
+        return poison;
 
     if (CanTryCast(bot, MUTILATE))
         return MUTILATE;
@@ -77,9 +107,8 @@ uint32 SelectCombat(Context const& ctx)
 
     int8 const cp = ctx.comboPoints;
 
-    // Buff: Deadly Poison
-    if (!HasMainhandWeaponImbue(bot) && CanTryCast(bot, DEADLY_POISON))
-        return DEADLY_POISON;
+    if (uint32 const poison = SelectPoisonBuff(bot, false))
+        return poison;
 
     if (NeedsMyAuraRefresh(bot, target, REVEALING_STRIKE, 3.0f) && CanTryCast(bot, REVEALING_STRIKE))
         return REVEALING_STRIKE;
@@ -105,9 +134,8 @@ uint32 SelectSubtlety(Context const& ctx)
 
     int8 const cp = ctx.comboPoints;
 
-    // Buff: Deadly Poison
-    if (!HasMainhandWeaponImbue(bot) && CanTryCast(bot, DEADLY_POISON))
-        return DEADLY_POISON;
+    if (uint32 const poison = SelectPoisonBuff(bot, false))
+        return poison;
 
     if (NeedsMyAuraRefresh(bot, target, HEMORRHAGE, 3.0f) && CanTryCast(bot, HEMORRHAGE))
         return HEMORRHAGE;

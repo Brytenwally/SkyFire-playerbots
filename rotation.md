@@ -108,19 +108,19 @@ Rogue
 
 Assassination (DPS)
 
-    Buff: Deadly Poison
+    Buffs: Deadly Poison (lethal) + Leeching Poison (non-lethal; Crippling if Leeching unknown). MoP allows only one of each.
 
     Rotation: Mutilate (build combo points) > Rupture (keep bleed active) > Envenom (finisher at 4-5 points) > Dispatch (use when target is below 30% health or on proc)
 
 Combat (DPS)
 
-    Buff: Deadly Poison
+    Buffs: Deadly Poison (lethal) + Crippling Poison (non-lethal). MoP allows only one of each.
 
     Rotation: Revealing Strike (keep debuff active) > Sinister Strike (build combo points) > Slice and Dice (keep attack speed buff active) > Eviscerate (finisher at 5 points)
 
 Subtlety (DPS)
 
-    Buff: Deadly Poison
+    Buffs: Deadly Poison (lethal) + Crippling Poison (non-lethal). MoP allows only one of each.
 
     Rotation: Hemorrhage (keep bleed active) > Backstab (build combo points) > Slice and Dice (keep buff active) > Rupture (finisher) > Eviscerate (finisher)
 

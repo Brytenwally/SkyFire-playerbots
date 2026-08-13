@@ -101,6 +101,11 @@ namespace
             case 79206:  // Spiritwalker's Grace
             case 8024:   // Flametongue Weapon
             case 8232:   // Windfury Weapon
+            case 2823:   // Deadly Poison (lethal)
+            case 8679:   // Wound Poison (lethal)
+            case 3408:   // Crippling Poison (non-lethal)
+            case 108211: // Leeching Poison (non-lethal)
+            case 108215: // Paralytic Poison (non-lethal)
             case 26573:  // Consecration
             case 768:    // Cat Form
             case 52610:  // Savage Roar
