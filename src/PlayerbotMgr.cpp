@@ -1521,9 +1521,7 @@ namespace
     // Gear selection
     // -----------------------------------------------------------------------
 
-    // Heaviest armor type the class can wear. Armor slots query the whole range
-    // 1..armorType and prefer the heaviest available, so low-level plate/mail
-    // classes automatically fall back to lighter armor until upgrades exist.
+    // Armor type the class wears in MoP (Cata+ taught this from level 1).
     uint8 ArmorTypeForClass(uint8 cls)
     {
         switch (cls)
@@ -2117,16 +2115,14 @@ namespace
             learnRiding(90265); // Master Riding
     }
 
-    // Learn cloth/leather/mail/plate proficiency spells the class is allowed to
-    // have at its current level (mirrors trainer unlocks / GiveLevel plate).
-    // Called on every init so deleveling then re-init does not teach plate early,
-    // while a level-90 warrior that never visited a trainer still learns it.
+    // Learn the armor proficiency the class actually uses in MoP. Cata removed
+    // the old level-40 plate/mail trainer gates, so warriors/paladins start in
+    // plate and hunters/shamans start in mail.
     void LearnArmorProficiencies(Player* bot)
     {
         if (!bot)
             return;
 
-        uint8 const level = bot->getLevel();
         uint8 const cls = bot->getClass();
 
         auto learn = [&](uint32 spellId)
@@ -2154,16 +2150,14 @@ namespace
             case CLASS_SHAMAN:
                 learn(9078);
                 learn(9077);
-                if (level >= 40)
-                    learn(8737); // Mail
+                learn(8737); // Mail
                 break;
             case CLASS_WARRIOR:
             case CLASS_PALADIN:
                 learn(9078);
                 learn(9077);
-                learn(119811); // Mail (MoP)
-                if (level >= 40)
-                    learn(750); // Plate Mail
+                learn(119811); // Mail
+                learn(750);    // Plate Mail
                 break;
             case CLASS_DEATH_KNIGHT:
                 // DKs begin at 55 with plate available.
@@ -2380,8 +2374,10 @@ namespace
     {
         uint8 const cls = bot->getClass();
         uint32 const primary = PrimaryStatForClassRole(cls, role, specId);
-        std::string const armorRange =
-            "class=4 AND subclass BETWEEN 1 AND " + std::to_string(uint32(ArmorTypeForClass(cls)));
+        // Armor slots: only the class's MoP armor type (leather/mail/plate/cloth).
+        // Mixing lighter types was a Vanilla/TBC fallback; it left 90s in cloth.
+        std::string const armorType =
+            "class=4 AND subclass=" + std::to_string(uint32(ArmorTypeForClass(cls)));
 
         ClearEquipment(bot);
 
@@ -2392,14 +2388,14 @@ namespace
             return EquipBestForSlot(bot, where, primary, exclude, minQuality, maxQuality);
         };
 
-        equipOne(armorRange + " AND InventoryType=1", 0);        // head
-        equipOne(armorRange + " AND InventoryType=3", 0);        // shoulders
-        equipOne(armorRange + " AND InventoryType IN (5,20)", 0);// chest
-        equipOne(armorRange + " AND InventoryType=6", 0);        // waist
-        equipOne(armorRange + " AND InventoryType=7", 0);        // legs
-        equipOne(armorRange + " AND InventoryType=8", 0);        // feet
-        equipOne(armorRange + " AND InventoryType=9", 0);        // wrists
-        equipOne(armorRange + " AND InventoryType=10", 0);       // hands
+        equipOne(armorType + " AND InventoryType=1", 0);        // head
+        equipOne(armorType + " AND InventoryType=3", 0);        // shoulders
+        equipOne(armorType + " AND InventoryType IN (5,20)", 0);// chest
+        equipOne(armorType + " AND InventoryType=6", 0);        // waist
+        equipOne(armorType + " AND InventoryType=7", 0);        // legs
+        equipOne(armorType + " AND InventoryType=8", 0);        // feet
+        equipOne(armorType + " AND InventoryType=9", 0);        // wrists
+        equipOne(armorType + " AND InventoryType=10", 0);       // hands
 
         equipOne("class=4 AND InventoryType=2", 0);              // neck
         equipOne("class=4 AND InventoryType=16", 0);             // cloak
