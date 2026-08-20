@@ -2064,8 +2064,9 @@ void PlayerbotAI::DoRotation(Unit* target)
 
     if (BotRotation::TryInterrupt(_bot, target))
         return;
-    bool const midFight = _bot->IsInCombat() || HasEngageTarget() || GroupInCombat();
-    if (!midFight && BotRotation::TryMaintainBuffs(_bot))
+    // Raid buffs (MotW etc.) are one party-wide cast. Keep them up in combat so a
+    // combat-rez'd ally gets the buff without waiting for the fight to end.
+    if (BotRotation::TryMaintainBuffs(_bot))
         return;
     if (BotRotation::IsBursting(_bot) && BotRotation::TryTrinkets(_bot))
         return;

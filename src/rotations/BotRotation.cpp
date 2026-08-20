@@ -26,6 +26,8 @@
 #include "CellImpl.h"
 
 #include <cstdio>
+#include <map>
+#include <set>
 #include <string>
 
 namespace BotRotation
@@ -996,13 +998,123 @@ namespace
         return CastSpell(bot, bot, spellId);
     }
 
-    // True if every nearby group member (and the bot) already has a category aura.
-    // Solo: just the bot. Missing anyone in range → cast so raid-wide buffs refresh.
-    bool GroupCoveredByBuff(Player* bot, std::initializer_list<uint32> auraIds)
+    // Caster GUID → buff spell → member GUIDs who still lacked the aura after a
+    // successful raid-wide cast. Cleared when they die so a rez gets another try.
+    std::map<uint64, std::map<uint32, std::set<uint64>> > raidBuffRejected;
+
+    bool HasExclusiveRaidBuff(Unit* unit, uint32 buffSpellId)
+    {
+        SpellInfo const* buffInfo = sSpellMgr->GetSpellInfo(buffSpellId);
+        if (!unit || !buffInfo)
+            return false;
+        if (unit->IsImmunedToSpell(buffInfo))
+            return true;
+        if (buffInfo->CheckShapeshift(unit->GetShapeshiftForm()) != SpellCastResult::SPELL_CAST_OK)
+            return true;
+
+        Unit::AuraApplicationMap const& auras = unit->GetAppliedAuras();
+        for (Unit::AuraApplicationMap::const_iterator itr = auras.begin(); itr != auras.end(); ++itr)
+        {
+            AuraApplication const* app = itr->second;
+            if (!app)
+                continue;
+            Aura const* existing = app->GetBase();
+            if (!existing)
+                continue;
+            SpellInfo const* existingInfo = existing->GetSpellInfo();
+            if (!existingInfo || existingInfo->Id == buffSpellId)
+                continue;
+            if (buffInfo->IsAuraExclusiveBySpecificWith(existingInfo))
+                return true;
+            SpellGroupStackRule const rule = sSpellMgr->CheckSpellGroupStackRules(buffInfo, existingInfo);
+            if (rule == SPELL_GROUP_STACK_RULE_EXCLUSIVE
+                || rule == SPELL_GROUP_STACK_RULE_EXCLUSIVE_SAME_EFFECT)
+                return true;
+        }
+        return false;
+    }
+
+    void PruneRaidBuffRejects(Player* bot, uint32 buffSpellId)
+    {
+        auto botIt = raidBuffRejected.find(bot->GetGUID());
+        if (botIt == raidBuffRejected.end())
+            return;
+        auto spellIt = botIt->second.find(buffSpellId);
+        if (spellIt == botIt->second.end())
+            return;
+
+        std::set<uint64> living;
+        if (Group* group = bot->GetGroup())
+        {
+            for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
+            {
+                Player* member = itr->GetSource();
+                if (member && member->IsAlive())
+                    living.insert(member->GetGUID());
+            }
+        }
+        for (std::set<uint64>::iterator it = spellIt->second.begin(); it != spellIt->second.end();)
+        {
+            if (living.find(*it) == living.end())
+                it = spellIt->second.erase(it);
+            else
+                ++it;
+        }
+    }
+
+    void RememberUncoveredAfterCast(Player* bot, std::initializer_list<uint32> auraIds, uint32 buffSpellId)
+    {
+        Group* group = bot->GetGroup();
+        if (!group)
+            return;
+
+        std::set<uint64>& skip = raidBuffRejected[bot->GetGUID()][buffSpellId];
+        if (!HasAnyAura(bot, auraIds) && !HasExclusiveRaidBuff(bot, buffSpellId))
+            skip.insert(bot->GetGUID());
+        else
+            skip.erase(bot->GetGUID());
+
+        float const range = 40.0f;
+        for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
+        {
+            Player* member = itr->GetSource();
+            if (!member || member == bot || !member->IsInWorld() || !member->IsAlive())
+                continue;
+            if (member->GetMap() != bot->GetMap())
+                continue;
+            if (!bot->IsWithinDistInMap(member, range, false))
+                continue;
+            if (HasAnyAura(member, auraIds) || HasExclusiveRaidBuff(member, buffSpellId))
+                continue;
+            skip.insert(member->GetGUID());
+        }
+    }
+
+    bool WasRejectedForBuff(Player* bot, uint32 buffSpellId, uint64 memberGuid)
+    {
+        auto botIt = raidBuffRejected.find(bot->GetGUID());
+        if (botIt == raidBuffRejected.end())
+            return false;
+        auto spellIt = botIt->second.find(buffSpellId);
+        if (spellIt == botIt->second.end())
+            return false;
+        return spellIt->second.find(memberGuid) != spellIt->second.end();
+    }
+
+    // Raid-wide buffs hit the party in one cast. Dead members are ignored; a
+    // rez'd ally is not (reject list is pruned on death). Allies who still lack
+    // the aura after a successful cast are skipped so we do not burn every GCD.
+    bool GroupCoveredByBuff(Player* bot, std::initializer_list<uint32> auraIds, uint32 buffSpellId)
     {
         if (!bot)
             return true;
-        if (!HasAnyAura(bot, auraIds))
+
+        PruneRaidBuffRejects(bot, buffSpellId);
+
+        if (HasAnyAura(bot, auraIds))
+            raidBuffRejected[bot->GetGUID()][buffSpellId].erase(bot->GetGUID());
+        else if (!HasExclusiveRaidBuff(bot, buffSpellId)
+            && !WasRejectedForBuff(bot, buffSpellId, bot->GetGUID()))
             return false;
 
         Group* group = bot->GetGroup();
@@ -1019,9 +1131,27 @@ namespace
                 continue;
             if (!bot->IsWithinDistInMap(member, range, false))
                 continue;
-            if (!HasAnyAura(member, auraIds))
-                return false;
+            if (HasAnyAura(member, auraIds))
+            {
+                raidBuffRejected[bot->GetGUID()][buffSpellId].erase(member->GetGUID());
+                continue;
+            }
+            if (HasExclusiveRaidBuff(member, buffSpellId))
+                continue;
+            if (WasRejectedForBuff(bot, buffSpellId, member->GetGUID()))
+                continue;
+            return false;
         }
+        return true;
+    }
+
+    bool TryRaidBuff(Player* bot, std::initializer_list<uint32> auraIds, uint32 spellId)
+    {
+        if (GroupCoveredByBuff(bot, auraIds, spellId))
+            return false;
+        if (!TryCastBuff(bot, spellId))
+            return false;
+        RememberUncoveredAfterCast(bot, auraIds, spellId);
         return true;
     }
 }
@@ -1090,8 +1220,10 @@ bool TryMaintainBuffs(Player* bot)
 
     // Raid buff cast IDs vs applied aura IDs can differ (e.g. Legacy of the
     // Emperor 115921 applies aura 117666). Always check the auras that stick.
-    std::initializer_list<uint32> const kStats = { 1126, 20217, 115921, 117666, 117667 };
-    std::initializer_list<uint32> const kStamina = { 21562, 469 };
+    std::initializer_list<uint32> const kStats = {
+        1126, 20217, 115921, 117666, 117667, 72586, 90363, 79833, 102046
+    };
+    std::initializer_list<uint32> const kStamina = { 21562, 469, 72590 };
     std::initializer_list<uint32> const kAttackPower = { 6673, 57330 };
     std::initializer_list<uint32> const kSpellPower = { 1459, 109773 };
     std::initializer_list<uint32> const kMastery = { 19740 };
@@ -1105,16 +1237,16 @@ bool TryMaintainBuffs(Player* bot)
                 bot->GetTalentSpecialization(bot->GetActiveSpec()) == SPEC_WARRIOR_PROTECTION;
             if (preferStamina)
             {
-                if (!GroupCoveredByBuff(bot, kStamina) && TryCastBuff(bot, 469))
+                if (TryRaidBuff(bot, kStamina, 469))
                     return true;
-                if (!GroupCoveredByBuff(bot, kAttackPower) && TryCastBuff(bot, 6673))
+                if (TryRaidBuff(bot, kAttackPower, 6673))
                     return true;
             }
             else
             {
-                if (!GroupCoveredByBuff(bot, kAttackPower) && TryCastBuff(bot, 6673))
+                if (TryRaidBuff(bot, kAttackPower, 6673))
                     return true;
-                if (!GroupCoveredByBuff(bot, kStamina) && TryCastBuff(bot, 469))
+                if (TryRaidBuff(bot, kStamina, 469))
                     return true;
             }
             break;
@@ -1123,35 +1255,35 @@ bool TryMaintainBuffs(Player* bot)
             // Only Blessing of Kings for the stats raid buff. Do not auto-cast
             // Might — with MotW/Emperor up it would re-cast every tick (one
             // blessing per pala + incomplete mastery coverage checks).
-            if (!GroupCoveredByBuff(bot, kStats) && TryCastBuff(bot, 20217))
+            if (TryRaidBuff(bot, kStats, 20217))
                 return true;
             break;
         case CLASS_PRIEST:
-            if (!GroupCoveredByBuff(bot, kStamina) && TryCastBuff(bot, 21562))
+            if (TryRaidBuff(bot, kStamina, 21562))
                 return true;
             if (!HasAuraUp(bot, 588) && !HasAuraUp(bot, 73413) && TryCastBuff(bot, 588))
                 return true;
             break;
         case CLASS_MAGE:
-            if (!GroupCoveredByBuff(bot, kSpellPower) && TryCastBuff(bot, 1459))
+            if (TryRaidBuff(bot, kSpellPower, 1459))
                 return true;
             break;
         case CLASS_WARLOCK:
-            if (!GroupCoveredByBuff(bot, kSpellPower) && TryCastBuff(bot, 109773))
+            if (TryRaidBuff(bot, kSpellPower, 109773))
                 return true;
             break;
         case CLASS_DRUID:
-            if (!GroupCoveredByBuff(bot, kStats) && TryCastBuff(bot, 1126))
+            if (TryRaidBuff(bot, kStats, 1126))
                 return true;
             break;
         case CLASS_DEATH_KNIGHT:
-            if (!GroupCoveredByBuff(bot, kAttackPower) && TryCastBuff(bot, 57330))
+            if (TryRaidBuff(bot, kAttackPower, 57330))
                 return true;
             break;
         case CLASS_MONK:
-            if (!GroupCoveredByBuff(bot, kStats) && TryCastBuff(bot, 115921))
+            if (TryRaidBuff(bot, kStats, 115921))
                 return true;
-            if (!GroupCoveredByBuff(bot, kMeleeCrit) && TryCastBuff(bot, 116781))
+            if (TryRaidBuff(bot, kMeleeCrit, 116781))
                 return true;
             break;
         default:
