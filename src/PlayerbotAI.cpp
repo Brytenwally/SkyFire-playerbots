@@ -796,7 +796,7 @@ bool PlayerbotAI::NeedsOocHealPublic() const
 
 void PlayerbotAI::UpdateAI(uint32 diff)
 {
-    if (!_bot || !_bot->IsInWorld())
+    if (!_bot || _bot->GetTypeId() != TypeID::TYPEID_PLAYER || !_bot->IsInWorld())
         return;
 
     // Invites / loot rolls / rez accepts must react immediately — they time out
@@ -3755,7 +3755,7 @@ bool PlayerbotAI::HasNearbyLootPublic() const
 
 bool PlayerbotAI::HandleLootRolls()
 {
-    if (!_bot || !_bot->IsInWorld())
+    if (!_bot || _bot->GetTypeId() != TypeID::TYPEID_PLAYER || !_bot->IsInWorld())
         return false;
 
     Group* group = _bot->GetGroup();

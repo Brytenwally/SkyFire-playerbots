@@ -51,6 +51,11 @@ public:
             sPlayerbotMgr->SyncNearbyBotVisibility(player, diff);
     }
 
+    void OnLogout(Player* player) override
+    {
+        sPlayerbotMgr->OnPlayerLogout(player);
+    }
+
     // Whisper directed at a bot or self-bot (including whispering yourself).
     void OnChat(Player* player, ChatMsg /*type*/, Language /*lang*/, std::string& msg, Player* receiver) override
     {

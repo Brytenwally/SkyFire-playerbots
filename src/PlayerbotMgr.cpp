@@ -209,7 +209,7 @@ void PlayerbotMgr::Update(uint32 diff)
         if (!ai || ai->IsClientControlled())
             continue;
         Player* bot = ai->GetBot();
-        if (!bot || !bot->IsInWorld())
+        if (!bot || bot->GetTypeId() != TypeID::TYPEID_PLAYER || !bot->IsInWorld())
             continue;
         ai->HandleLfg();
     }
@@ -965,8 +965,20 @@ void PlayerbotMgr::UpdateBotAI(Player* bot, uint32 diff)
         return;
 
     auto it = _ai.find(bot->GetGUID());
-    if (it != _ai.end())
-        it->second->UpdateAI(diff);
+    if (it == _ai.end() || !it->second)
+        return;
+
+    it->second->Rebind(bot);
+    it->second->UpdateAI(diff);
+}
+
+void PlayerbotMgr::OnPlayerLogout(Player* player)
+{
+    if (!player)
+        return;
+    uint64 const guid = player->GetGUID();
+    _selfBots.erase(guid);
+    DestroyBotAI(guid);
 }
 
 void PlayerbotMgr::SyncNearbyBotVisibility(Player* viewer, uint32 diff)

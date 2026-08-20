@@ -64,6 +64,8 @@ public:
     void HandleLfg();
 
     Player* GetBot() const { return _bot; }
+    // Relog creates a new Player with the same GUID; keep _bot on the live object.
+    void Rebind(Player* bot) { _bot = bot; }
     bool IsClientControlled() const { return _clientControlled; }
 
     // Copy a real player's MoP phase-id set onto this bot and refresh that

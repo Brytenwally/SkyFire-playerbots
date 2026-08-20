@@ -38,6 +38,9 @@ public:
 
     // Ticks a single bot's AI (from PlayerScript::OnUpdate).
     void UpdateBotAI(Player* bot, uint32 diff);
+    // Player object is going away — drop self-bot / AI so a relog cannot tick
+    // a dangling _bot (GetUInt64Value on a destroyed Object with valuesCount 0).
+    void OnPlayerLogout(Player* player);
 
     // Real player tick: align in-range socket bots to this player's MoP phases
     // and refresh client visibility (ungrouped bots were invisible until invite).
