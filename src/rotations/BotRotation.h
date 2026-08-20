@@ -93,6 +93,10 @@ namespace BotRotation
     bool SpellReady(Player* bot, uint32 spellId);
     // Known, off GCD/CD, and affordable (SpellPower.dbc cost).
     bool CanTryCast(Player* bot, uint32 spellId);
+    // True when `formSpellId` should be cast this tick. Drops a conflicting
+    // shapeshift first — form spells have SPELL_ATTR0_NOT_SHAPESHIFT, so Bear /
+    // Cat / Moonkin fail while another form is already up.
+    bool ReadyToShapeshift(Player* bot, uint32 formSpellId);
     bool IsSelfCastSpell(uint32 spellId);
     // Off-hand is an actual shield (not a held weapon / tome).
     bool HasShieldEquipped(Player* bot);

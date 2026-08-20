@@ -312,7 +312,7 @@ uint32 SelectRestorationDruid(HealContext const& ctx)
 
     if (!HasAuraUp(bot, MARK_OF_THE_WILD) && CanTryCast(bot, MARK_OF_THE_WILD))
         return MARK_OF_THE_WILD;
-    if (NeedsMaintenance(ctx) && CanTryCast(bot, TREE_OF_LIFE))
+    if (NeedsMaintenance(ctx) && ReadyToShapeshift(bot, TREE_OF_LIFE))
         return TREE_OF_LIFE;
 
     if (NeedsMaintenance(ctx)

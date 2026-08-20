@@ -178,7 +178,7 @@ uint32 SelectRestorationDruidDps(Context const& ctx)
 
     if (!HasAuraUp(bot, MARK_OF_THE_WILD) && CanTryCast(bot, MARK_OF_THE_WILD))
         return MARK_OF_THE_WILD;
-    if (CanTryCast(bot, MOONKIN_FORM) && !HasAuraUp(bot, MOONKIN_FORM))
+    if (ReadyToShapeshift(bot, MOONKIN_FORM))
         return MOONKIN_FORM;
 
     if (ctx.enemies >= 3 && CanTryCast(bot, HURRICANE))

@@ -52,7 +52,7 @@ uint32 SelectGuardian(Context const& ctx)
     if (!bot || !target)
         return 0;
 
-    if (!HasAuraUp(bot, BEAR_FORM) && CanTryCast(bot, BEAR_FORM))
+    if (ReadyToShapeshift(bot, BEAR_FORM))
         return BEAR_FORM;
 
     if (CanTryCast(bot, MANGLE_BEAR))
@@ -84,7 +84,7 @@ uint32 SelectFeral(Context const& ctx)
 
     int8 const cp = ctx.comboPoints;
 
-    if (!HasAuraUp(bot, CAT_FORM) && CanTryCast(bot, CAT_FORM))
+    if (ReadyToShapeshift(bot, CAT_FORM))
         return CAT_FORM;
 
     if (cp > 0 && NeedsMyAuraRefresh(bot, bot, SAVAGE_ROAR, 3.0f) && CanTryCast(bot, SAVAGE_ROAR))
@@ -116,7 +116,7 @@ uint32 SelectBalance(Context const& ctx)
     if (!bot || !target)
         return 0;
 
-    if (!HasAuraUp(bot, MOONKIN_FORM) && CanTryCast(bot, MOONKIN_FORM))
+    if (ReadyToShapeshift(bot, MOONKIN_FORM))
         return MOONKIN_FORM;
 
     if (NeedsMyAuraRefresh(bot, target, MOONFIRE, 3.0f) && CanTryCast(bot, MOONFIRE))

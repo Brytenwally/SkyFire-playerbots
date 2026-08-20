@@ -489,6 +489,15 @@ bool CanTryCast(Player* bot, uint32 spellId)
     return true;
 }
 
+bool ReadyToShapeshift(Player* bot, uint32 formSpellId)
+{
+    if (!bot || HasAuraUp(bot, formSpellId) || !CanTryCast(bot, formSpellId))
+        return false;
+    if (bot->HasAuraType(SPELL_AURA_MOD_SHAPESHIFT))
+        bot->RemoveAurasByType(SPELL_AURA_MOD_SHAPESHIFT);
+    return true;
+}
+
 // Face + stop so SPELL_FAILED_UNIT_NOT_INFRONT / moving-cast failures don't
 // silently no-op (bots previously called CastSpell and assumed success).
 void PrepareHostileCast(Player* bot, Unit* castTarget)
