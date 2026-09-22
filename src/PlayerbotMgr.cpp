@@ -2436,7 +2436,10 @@ uint32 PlayerbotMgr::CreateBotPopulation(std::string* report)
         uint32 accountId = AccountMgr::GetId(username);
         if (!accountId)
         {
-            AccountOpResult res = sAccountMgr->CreateAccount(username, _autoPassword, "");
+            // CreateAccount rejects an empty email (AOR_EMAIL_INVALID). Each account
+            // needs its own address or the next one fails as a duplicate.
+            std::string const email = username + "@playerbots.local";
+            AccountOpResult res = sAccountMgr->CreateAccount(username, _autoPassword, email);
             if (res != AccountOpResult::AOR_OK)
             {
                 SF_LOG_ERROR("modules", "[mod-playerbots] Failed to create bot account '%s' (error %u).",
