@@ -72,6 +72,9 @@ public:
     // player's client visibility of the bot (needed when not in a group).
     void SyncPhaseWithMaster(Unit* master);
 
+    // Revive if dead, then warp to the player. Used by summon orders and .playerbots summon.
+    bool TeleportToPlayer(Player* master);
+
     // Re-apply role-default strategies (after init/spec change).
     void ResetStrategiesToRoleDefaults();
     // After teleport/init: clear stale pathing and restore open-world activity
@@ -216,7 +219,6 @@ private:
     bool EnsureGroundMountCapability();
     void SetBotFlyingMovement(bool enable);
     void TeleportToLeader(Player* leader);
-    void TeleportToPlayer(Player* master);
     void StopResting();
     bool StartRefreshment();
     bool HasFoodOrDrinkAura() const;

@@ -2374,10 +2374,12 @@ namespace
     {
         uint8 const cls = bot->getClass();
         uint32 const primary = PrimaryStatForClassRole(cls, role, specId);
-        // Armor slots: only the class's MoP armor type (leather/mail/plate/cloth).
-        // Mixing lighter types was a Vanilla/TBC fallback; it left 90s in cloth.
-        std::string const armorType =
-            "class=4 AND subclass=" + std::to_string(uint32(ArmorTypeForClass(cls)));
+        // Prefer the class's MoP armor type. Plate often does not exist at low
+        // levels, so warriors/paladins/DKs fall back to mail for an empty slot.
+        // Do not continue into leather or cloth — that left max-level bots in cloth.
+        uint8 const primaryArmor = ArmorTypeForClass(cls);
+        uint8 const fallbackArmor = primaryArmor == ITEM_SUBCLASS_ARMOR_PLATE
+            ? uint8(ITEM_SUBCLASS_ARMOR_MAIL) : 0;
 
         ClearEquipment(bot);
 
@@ -2388,14 +2390,39 @@ namespace
             return EquipBestForSlot(bot, where, primary, exclude, minQuality, maxQuality);
         };
 
-        equipOne(armorType + " AND InventoryType=1", 0);        // head
-        equipOne(armorType + " AND InventoryType=3", 0);        // shoulders
-        equipOne(armorType + " AND InventoryType IN (5,20)", 0);// chest
-        equipOne(armorType + " AND InventoryType=6", 0);        // waist
-        equipOne(armorType + " AND InventoryType=7", 0);        // legs
-        equipOne(armorType + " AND InventoryType=8", 0);        // feet
-        equipOne(armorType + " AND InventoryType=9", 0);        // wrists
-        equipOne(armorType + " AND InventoryType=10", 0);       // hands
+        auto equipArmorSlot = [&](char const* slotClause)
+        {
+            std::string const slot = std::string(" AND ") + slotClause;
+            std::string const plateOrPrimary =
+                "class=4 AND subclass=" + std::to_string(uint32(primaryArmor)) + slot;
+            if (equipOne(plateOrPrimary, 0))
+                return;
+
+            if (!fallbackArmor)
+                return;
+
+            std::string const mail =
+                "class=4 AND subclass=" + std::to_string(uint32(fallbackArmor)) + slot;
+            if (equipOne(mail, 0))
+                return;
+
+            // Starter mail/plate is often white. The green+ band leaves those slots empty.
+            if (minQuality <= int(ITEM_QUALITY_NORMAL))
+                return;
+
+            if (EquipBestForSlot(bot, plateOrPrimary, primary, 0, int(ITEM_QUALITY_NORMAL), maxQuality))
+                return;
+            EquipBestForSlot(bot, mail, primary, 0, int(ITEM_QUALITY_NORMAL), maxQuality);
+        };
+
+        equipArmorSlot("InventoryType=1");          // head
+        equipArmorSlot("InventoryType=3");          // shoulders
+        equipArmorSlot("InventoryType IN (5,20)");  // chest
+        equipArmorSlot("InventoryType=6");          // waist
+        equipArmorSlot("InventoryType=7");          // legs
+        equipArmorSlot("InventoryType=8");          // feet
+        equipArmorSlot("InventoryType=9");          // wrists
+        equipArmorSlot("InventoryType=10");         // hands
 
         equipOne("class=4 AND InventoryType=2", 0);              // neck
         equipOne("class=4 AND InventoryType=16", 0);             // cloak

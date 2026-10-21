@@ -6273,7 +6273,11 @@ bool PlayerbotAI::HandleChatCommand(Player* from, std::string const& text, bool 
             ack("Self-bot ignores summon.");
             return true;
         }
-        TeleportToPlayer(from);
+        if (!TeleportToPlayer(from))
+        {
+            ack("Could not summon.");
+            return true;
+        }
         _strategies.ApplyFollowPack();
         SyncFlagsFromStrategies();
         ClearTravelDestination();
@@ -6638,27 +6642,52 @@ void PlayerbotAI::EnsureVisiblePhases()
         SyncPhaseWithMaster(source);
 }
 
-void PlayerbotAI::TeleportToPlayer(Player* master)
+bool PlayerbotAI::TeleportToPlayer(Player* master)
 {
-    if (!master || _clientControlled)
-        return;
+    if (!master || !_bot || _clientControlled || !master->IsInWorld() || !_bot->IsInWorld())
+        return false;
+
+    // A taxi spline keeps running after TeleportTo and walks the bot back off the summon point.
+    if (_bot->IsInFlight())
+    {
+        _bot->GetMotionMaster()->MovementExpired();
+        _bot->CleanupAfterTaxiFlight();
+    }
+
+    // Dead bots cannot change map (no corpse in the destination instance) and the
+    // death timer still repops them at the graveyard after a same-map teleport.
+    if (!_bot->IsAlive())
+    {
+        _bot->ResurrectPlayer(1.0f, false);
+        _bot->SpawnCorpseBones();
+        if (_bot->getStandState() != UNIT_STAND_STATE_STAND)
+            _bot->SetStandState(UNIT_STAND_STATE_STAND);
+    }
+
+    // Finish a stuck near/far teleport before starting another, or the new dest is dropped.
+    if (_bot->IsBeingTeleported())
+    {
+        if (WorldSession* session = _bot->GetSession())
+            session->FinalizeBotTeleport();
+    }
 
     _bot->GetMotionMaster()->Clear();
     _bot->GetMotionMaster()->MoveIdle();
 
-    if (_bot->TeleportTo(master->GetMapId(), master->GetPositionX(), master->GetPositionY(),
+    if (!_bot->TeleportTo(master->GetMapId(), master->GetPositionX(), master->GetPositionY(),
         master->GetPositionZ(), master->GetOrientation()))
-    {
-        if (_bot->GetSession() && _bot->GetSession()->IsBot())
-            _bot->GetSession()->FinalizeBotTeleport();
-        // FinalizeBotTeleport → UpdateZone → UpdateAreaPhase uses the bot's own
-        // quest/aura conditions, which often diverge from the master's MoP phases.
-        SyncPhaseWithMaster(master);
-    }
+        return false;
+
+    if (_bot->GetSession() && _bot->GetSession()->IsBot())
+        _bot->GetSession()->FinalizeBotTeleport();
+    // FinalizeBotTeleport → UpdateZone → UpdateAreaPhase uses the bot's own
+    // quest/aura conditions, which often diverge from the master's MoP phases.
+    SyncPhaseWithMaster(master);
 
     _followGuid = 0;
     _chaseGuid = 0;
     _lootGuid = 0;
+    return true;
 }
 
 void PlayerbotAI::TeleportToLeader(Player* leader)

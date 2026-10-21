@@ -295,14 +295,12 @@ public:
             if (!sPlayerbotMgr->IsBot(member->GetGUID()))
                 continue;
 
-            member->GetMotionMaster()->Clear();
-            member->GetMotionMaster()->MoveIdle();
-            if (member->TeleportTo(master->GetMapId(), master->GetPositionX(), master->GetPositionY(),
-                master->GetPositionZ(), master->GetOrientation()))
+            // TeleportToPlayer revives corpses (a dead bot's teleport is rejected
+            // on map change, and the death timer sends them to the graveyard).
+            if (PlayerbotAI* ai = sPlayerbotMgr->GetBotAI(member->GetGUID()))
             {
-                // Bots have no client to ack the teleport; finalize it now.
-                member->GetSession()->FinalizeBotTeleport();
-                ++count;
+                if (ai->TeleportToPlayer(master))
+                    ++count;
             }
         }
 
