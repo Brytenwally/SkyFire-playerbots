@@ -17,10 +17,12 @@
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "SharedDefines.h"
+#include "World.h"
 #include "WorldSession.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <random>
 #include <unordered_set>
 #include <vector>
@@ -128,12 +130,23 @@ namespace
         }
     }
 
+    // Map::ExistMap logs "Map file ... does not exist!" for every miss, and open
+    // ocean / void tiles are simply not shipped, so probe the file quietly.
     bool MapTileExists(uint32 mapId, float x, float y)
     {
         GridCoord p = Skyfire::ComputeGridCoord(x, y);
         int const gx = 63 - int(p.x_coord);
         int const gy = 63 - int(p.y_coord);
-        return Map::ExistMap(mapId, gx, gy);
+
+        char tile[32];
+        snprintf(tile, sizeof(tile), "maps/%04u_%02u_%02u.map", mapId, gx, gy);
+        std::string const path = sWorld->GetDataPath() + tile;
+        if (FILE* f = fopen(path.c_str(), "rb"))
+        {
+            fclose(f);
+            return true;
+        }
+        return false;
     }
 
     bool BracketForZone(uint32 zoneId, uint8& minLevel, uint8& maxLevel)
