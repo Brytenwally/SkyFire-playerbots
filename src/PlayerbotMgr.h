@@ -100,7 +100,9 @@ public:
     // the configured faction/role ratios and level range. Incremental: existing
     // accounts/characters are reused. Returns the number of characters
     // created; a human-readable summary is appended to *report when provided.
-    uint32 CreateBotPopulation(std::string* report = nullptr);
+    // allowInitOnCreate=false defers gear/teleport to the per-tick init queue
+    // even when InitOnCreate is set (startup must not block the world loop).
+    uint32 CreateBotPopulation(std::string* report = nullptr, bool allowInitOnCreate = true);
 
     // Logs out prefix bots and deletes all accounts/characters matching
     // AccountPrefix. Returns accounts deleted. Refuses unsafe prefixes.

@@ -146,8 +146,11 @@ public:
         {
             // Optionally provision bot accounts/characters once the world is fully
             // loaded (all DBC/db data available for valid race/class/name checks).
+            // OnStartup runs before the world loop, so sessions are not
+            // accepted until it returns. Gear and teleport go to the per-tick
+            // init queue instead of logging every new bot in here.
             std::string report;
-            sPlayerbotMgr->CreateBotPopulation(&report);
+            sPlayerbotMgr->CreateBotPopulation(&report, false);
             SF_LOG_INFO("modules", "[mod-playerbots] %s", report.c_str());
         }
 

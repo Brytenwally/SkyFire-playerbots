@@ -2444,7 +2444,7 @@ namespace
     }
 }
 
-uint32 PlayerbotMgr::CreateBotPopulation(std::string* report)
+uint32 PlayerbotMgr::CreateBotPopulation(std::string* report, bool allowInitOnCreate)
 {
     if (_autoAccountCount == 0)
     {
@@ -2497,8 +2497,9 @@ uint32 PlayerbotMgr::CreateBotPopulation(std::string* report)
     if (charsCreated)
         CharacterDatabase.Wait();
 
+    bool const initNow = _autoInitOnCreate && allowInitOnCreate;
     uint32 inited = 0;
-    if (_autoInitOnCreate && !pending.empty())
+    if (initNow && !pending.empty())
     {
         SF_LOG_INFO("modules",
             "[mod-playerbots] Auto-init on create: gearing %u new character(s)...",
@@ -2512,7 +2513,7 @@ uint32 PlayerbotMgr::CreateBotPopulation(std::string* report)
                     inited, uint32(pending.size()));
         }
     }
-    else if (!_autoInitOnCreate && !pending.empty())
+    else if (!pending.empty())
     {
         for (PendingBotInit const& p : pending)
             _deferredInits[p.guid] = p;
@@ -2527,8 +2528,8 @@ uint32 PlayerbotMgr::CreateBotPopulation(std::string* report)
     SF_LOG_INFO("modules",
         "[mod-playerbots] Auto-create complete: %u new account(s), %u new character(s)%s.",
         accountsCreated, charsCreated,
-        _autoInitOnCreate ? "" : " (init deferred to first login)");
-    if (_autoInitOnCreate && inited)
+        initNow ? "" : " (init deferred to first login)");
+    if (initNow && inited)
         SF_LOG_INFO("modules", "[mod-playerbots] Auto-init finished: %u character(s).", inited);
 
     if (report)
@@ -2536,7 +2537,7 @@ uint32 PlayerbotMgr::CreateBotPopulation(std::string* report)
         std::ostringstream ss;
         ss << "Auto-create complete: " << accountsCreated << " new account(s), "
            << charsCreated << " new character(s)";
-        if (_autoInitOnCreate)
+        if (initNow)
             ss << ", " << inited << " inited";
         else
             ss << " (gear on first login)";
