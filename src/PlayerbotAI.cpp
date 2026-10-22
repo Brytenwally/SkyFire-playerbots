@@ -6,6 +6,7 @@
 #include "PlayerbotAI.h"
 #include "PlayerbotMgr.h"
 #include "BotPreferredMounts.h"
+#include "BotTeleportMaps.h"
 #include "BotVendorHubs.h"
 #include "engine/BotAiEngine.h"
 #include "engine/BotFleeManager.h"
@@ -71,6 +72,7 @@ namespace
     // How often (ms) the bot re-evaluates its behaviour. Kept coarse to keep the
     // per-tick cost of large bot populations low.
     constexpr uint32 BOT_AI_UPDATE_INTERVAL = 500;
+    constexpr uint32 BOT_STRANDED_CHECK_INTERVAL = 30000;
 
     // Auto Shot / wand stay on CURRENT_AUTOREPEAT forever. Callers that mean
     // "am I mid cast-bar?" must skip autorepeat or hunters never act again.
@@ -822,6 +824,17 @@ void PlayerbotAI::UpdateAI(uint32 diff)
         _wanderTimer = 0;
 
     _updateTimer = 0;
+
+    // A bot on a map tile/area that does not exist triggers "discovered unknown
+    // area" / "Wrong area flag" spam and can never path anywhere.
+    _strandedCheckTimer += BOT_AI_UPDATE_INTERVAL;
+    if (_strandedCheckTimer >= BOT_STRANDED_CHECK_INTERVAL)
+    {
+        _strandedCheckTimer = 0;
+        if (!_clientControlled && !BotTeleportMaps::IsOnKnownGround(_bot)
+            && BotTeleportMaps::RescueStrandedBot(_bot))
+            return;
+    }
 
     // Ungrouped bots need the same phase sync grouped ones get, plus an explicit
     // viewer create-packet refresh after UpdateAreaPhase desyncs them.

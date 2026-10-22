@@ -330,6 +330,7 @@ private:
     uint64 _followGuid;
     uint64 _lootGuid;
     uint32 _wanderTimer;
+    uint32 _strandedCheckTimer = 0;
     // Corpses skipped after a full-bag loot attempt (still open once for rolls).
     std::unordered_set<uint64> _lootBagFullSkip;
     // Corpses we already opened so group rolls could start.

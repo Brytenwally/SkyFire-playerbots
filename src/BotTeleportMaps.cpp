@@ -611,4 +611,39 @@ namespace BotTeleportMaps
             return TeleportToHomebind(bot);
         return false;
     }
+
+    bool IsOnKnownGround(Player const* bot)
+    {
+        if (!bot || !bot->IsInWorld() || bot->IsBeingTeleported() || bot->IsInFlight() || bot->GetTransport())
+            return true;
+
+        Map const* map = bot->GetMap();
+        if (!map || map->Instanceable())
+            return true;
+
+        uint32 const mapId = bot->GetMapId();
+        if (!MapTileExists(mapId, bot->GetPositionX(), bot->GetPositionY()))
+            return false;
+
+        AreaTableEntry const* area = GetAreaEntryByAreaID(bot->GetAreaId());
+        return area && area->m_ContinentID == mapId;
+    }
+
+    bool RescueStrandedBot(Player* bot)
+    {
+        if (!bot || !bot->IsInWorld() || !bot->IsAlive())
+            return false;
+
+        SF_LOG_ERROR("modules",
+            "[mod-playerbots] Bot '%s' (GUID %u, level %u) stranded on map %u at (%.1f, %.1f, %.1f) area %u; "
+            "homebind map %u (%.1f, %.1f). Sending home.",
+            bot->GetName().c_str(), bot->GetGUIDLow(), uint32(bot->getLevel()), bot->GetMapId(),
+            bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), bot->GetAreaId(),
+            bot->m_homebindMapId, bot->m_homebindX, bot->m_homebindY);
+
+        if (!TeleportToHomebind(bot))
+            return false;
+        bot->SaveToDB();
+        return true;
+    }
 }

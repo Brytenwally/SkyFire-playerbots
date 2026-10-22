@@ -48,6 +48,15 @@ namespace BotTeleportMaps
     // Hearth / homebind location (falls back to race create coords).
     // Refuses a homebind that is not on a real tile for its map.
     bool TeleportToHomebind(Player* bot);
+
+    // False when an open-world bot stands where its map has no terrain tile or
+    // the area there does not belong to that map (e.g. Teldrassil coordinates
+    // on Eastern Kingdoms). Instances, transports and taxis always pass.
+    bool IsOnKnownGround(Player const* bot);
+
+    // Logs the stranded position and sends the bot home (homebind, else race
+    // create). Returns true when the bot was moved.
+    bool RescueStrandedBot(Player* bot);
 }
 
 #endif
