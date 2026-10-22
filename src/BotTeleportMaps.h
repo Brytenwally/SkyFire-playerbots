@@ -54,6 +54,9 @@ namespace BotTeleportMaps
     // on Eastern Kingdoms). Instances, transports and taxis always pass.
     bool IsOnKnownGround(Player const* bot);
 
+    // True when the terrain tile file for (map, x, y) is present. No logging.
+    bool HasMapTile(uint32 mapId, float x, float y);
+
     // Logs the stranded position and sends the bot home (homebind, else race
     // create). Returns true when the bot was moved.
     bool RescueStrandedBot(Player* bot);

@@ -99,6 +99,7 @@ void PlayerbotMgr::LoadConfig()
 
     _autoCreateOnStartup = sConfigMgr->GetBoolDefault("Playerbots.AutoCreate.OnStartup", false);
     _deleteRandomBotAccounts = sConfigMgr->GetBoolDefault("Playerbots.DeleteRandomBotAccounts", false);
+    _deleteOrphanCharacters = sConfigMgr->GetBoolDefault("Playerbots.DeleteOrphanCharacters", true);
     _autoAccountCount = uint32(sConfigMgr->GetIntDefault("Playerbots.AutoCreate.AccountCount", 0));
     _autoPassword = sConfigMgr->GetStringDefault("Playerbots.AutoCreate.AccountPassword", "password");
     _autoCharsPerAccount = uint32(sConfigMgr->GetIntDefault("Playerbots.AutoCreate.CharactersPerAccount", 1));
@@ -289,6 +290,102 @@ void PlayerbotMgr::LoadCandidates()
 
     SF_LOG_INFO("modules", "[mod-playerbots] Loaded %u candidate bot character(s) from prefix '%s'.",
         uint32(_candidates.size()), _accountPrefix.c_str());
+}
+
+uint32 PlayerbotMgr::DeleteOrphanCharacters()
+{
+    // auth and characters may live on different servers, so diff the two id
+    // sets here instead of a cross-database join.
+    std::unordered_set<uint32> accountIds;
+    if (QueryResult accounts = LoginDatabase.Query("SELECT id FROM account"))
+    {
+        do
+            accountIds.insert((*accounts)[0].GetUInt32());
+        while (accounts->NextRow());
+    }
+    else
+        return 0; // never treat an unreadable/empty auth table as "everything orphaned"
+
+    QueryResult chars = CharacterDatabase.Query("SELECT guid, account FROM characters WHERE account <> 0");
+    if (!chars)
+        return 0;
+
+    std::vector<uint32> orphans;
+    do
+    {
+        Field* f = chars->Fetch();
+        if (!accountIds.count(f[1].GetUInt32()))
+            orphans.push_back(f[0].GetUInt32());
+    } while (chars->NextRow());
+
+    for (uint32 guid : orphans)
+        Player::DeleteFromDB(MAKE_NEW_GUID(guid, 0, HIGHGUID_PLAYER), 0, false, true);
+
+    if (!orphans.empty())
+        SF_LOG_ERROR("modules",
+            "[mod-playerbots] Deleted %u character(s) whose account no longer exists.", uint32(orphans.size()));
+    return uint32(orphans.size());
+}
+
+uint32 PlayerbotMgr::RepairStrandedBotRows()
+{
+    if (_accountPrefix.empty())
+        return 0;
+
+    QueryResult accounts = LoginDatabase.PQuery(
+        "SELECT id FROM account WHERE username LIKE '%s%%'", _accountPrefix.c_str());
+    if (!accounts)
+        return 0;
+
+    std::ostringstream accountIds;
+    bool first = true;
+    do
+    {
+        if (!first)
+            accountIds << ',';
+        accountIds << (*accounts)[0].GetUInt32();
+        first = false;
+    } while (accounts->NextRow());
+
+    QueryResult rows = CharacterDatabase.PQuery(
+        "SELECT c.guid, c.map, c.position_x, c.position_y, h.mapId, h.zoneId, h.posX, h.posY, h.posZ "
+        "FROM characters c JOIN character_homebind h ON h.guid = c.guid "
+        "WHERE c.account IN (%s) AND c.map <> h.mapId", accountIds.str().c_str());
+    if (!rows)
+        return 0;
+
+    // Init scatter never lands within this distance of the race start on a
+    // different continent, so such rows are leftovers of a broken teleport.
+    float const nearHome = 1500.0f;
+    uint32 repaired = 0;
+    do
+    {
+        Field* f = rows->Fetch();
+        uint32 const guid = f[0].GetUInt32();
+        uint32 const map = f[1].GetUInt16();
+        float const x = f[2].GetFloat();
+        float const y = f[3].GetFloat();
+        uint32 const homeMap = f[4].GetUInt16();
+        uint32 const homeZone = f[5].GetUInt16();
+        float const homeX = f[6].GetFloat();
+        float const homeY = f[7].GetFloat();
+        float const homeZ = f[8].GetFloat();
+
+        bool const nearHomeCoords = std::fabs(x - homeX) < nearHome && std::fabs(y - homeY) < nearHome;
+        if (!nearHomeCoords && BotTeleportMaps::HasMapTile(map, x, y))
+            continue;
+
+        CharacterDatabase.DirectPExecute(
+            "UPDATE characters SET map = %u, position_x = %f, position_y = %f, position_z = %f, zone = %u, "
+            "instance_id = 0, trans_x = 0, trans_y = 0, trans_z = 0, transguid = 0, taxi_path = '' WHERE guid = %u",
+            homeMap, homeX, homeY, homeZ, homeZone, guid);
+        ++repaired;
+    } while (rows->NextRow());
+
+    if (repaired)
+        SF_LOG_ERROR("modules",
+            "[mod-playerbots] Moved %u bot character(s) with mismatched map/coordinates back to homebind.", repaired);
+    return repaired;
 }
 
 void PlayerbotMgr::TrySpawnRandomBot()

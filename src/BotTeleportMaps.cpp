@@ -625,6 +625,11 @@ namespace BotTeleportMaps
         return false;
     }
 
+    bool HasMapTile(uint32 mapId, float x, float y)
+    {
+        return MapTileExists(mapId, x, y);
+    }
+
     bool IsOnKnownGround(Player const* bot)
     {
         if (!bot || !bot->IsInWorld() || bot->IsBeingTeleported() || bot->IsInFlight() || bot->GetTransport())

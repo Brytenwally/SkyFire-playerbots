@@ -142,7 +142,14 @@ public:
             sPlayerbotMgr->DeleteBotAccounts(&report);
             SF_LOG_INFO("modules", "[mod-playerbots] %s", report.c_str());
         }
-        else if (sPlayerbotMgr->IsAutoCreateOnStartup())
+        else
+        {
+            if (sPlayerbotMgr->ShouldDeleteOrphanCharacters())
+                sPlayerbotMgr->DeleteOrphanCharacters();
+            sPlayerbotMgr->RepairStrandedBotRows();
+        }
+
+        if (!sPlayerbotMgr->ShouldDeleteRandomBotAccounts() && sPlayerbotMgr->IsAutoCreateOnStartup())
         {
             // Optionally provision bot accounts/characters once the world is fully
             // loaded (all DBC/db data available for valid race/class/name checks).

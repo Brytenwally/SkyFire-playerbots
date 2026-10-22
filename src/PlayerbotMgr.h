@@ -104,6 +104,16 @@ public:
     // even when InitOnCreate is set (startup must not block the world loop).
     uint32 CreateBotPopulation(std::string* report = nullptr, bool allowInitOnCreate = true);
 
+    // Resets saved bot positions that sit on a map other than their homebind
+    // while holding coordinates from the homebind's map (or a missing tile).
+    // Run before any bot logs in. Returns the number of characters moved home.
+    uint32 RepairStrandedBotRows();
+
+    // Fully deletes characters whose account no longer exists in auth
+    // (account 0 soft-deletes excluded). Returns the number deleted.
+    uint32 DeleteOrphanCharacters();
+    bool ShouldDeleteOrphanCharacters() const { return _deleteOrphanCharacters; }
+
     // Logs out prefix bots and deletes all accounts/characters matching
     // AccountPrefix. Returns accounts deleted. Refuses unsafe prefixes.
     uint32 DeleteBotAccounts(std::string* report = nullptr);
@@ -229,6 +239,7 @@ private:
     // Auto-creation settings.
     bool _autoCreateOnStartup = false;
     bool _deleteRandomBotAccounts = false;
+    bool _deleteOrphanCharacters = true;
     uint32 _autoAccountCount = 0;
     std::string _autoPassword = "password";
     uint32 _autoCharsPerAccount = 1;

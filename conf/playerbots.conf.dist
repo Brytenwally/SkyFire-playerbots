@@ -51,6 +51,18 @@ Playerbots.RandomBots.AccountPrefix = "RNDBOT"
 Playerbots.DeleteRandomBotAccounts = 0
 
 #
+#    Playerbots.DeleteOrphanCharacters
+#        Description: On startup, fully delete characters whose account no
+#                     longer exists in the auth database (e.g. bot accounts
+#                     wiped while the character deletes were still queued).
+#                     Characters on account 0 (CharDelete.Method = 1 soft
+#                     deletes) are left alone.
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled)
+
+Playerbots.DeleteOrphanCharacters = 1
+
+#
 #    Playerbots.RandomBots.LoginInterval
 #        Description: Minimum milliseconds between *starting* a new async random
 #                     bot login. DB load runs on a worker thread; LoadFromDB into
