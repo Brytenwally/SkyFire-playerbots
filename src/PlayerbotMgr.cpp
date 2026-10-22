@@ -1270,7 +1270,7 @@ uint32 PlayerbotMgr::DeleteBotAccounts(std::string* report)
         if (report)
             *report = msg;
         _candidates.clear();
-        _candidatesLoaded = false;
+        _candidatesLoaded = true;
         return 0;
     }
 
@@ -1293,8 +1293,11 @@ uint32 PlayerbotMgr::DeleteBotAccounts(std::string* report)
         }
     } while (accounts->NextRow());
 
+    // Account and character deletes are queued asynchronously. Reloading
+    // candidates on the next tick would still see those rows and start logins
+    // for characters that are about to disappear.
     _candidates.clear();
-    _candidatesLoaded = false;
+    _candidatesLoaded = true;
     _deferredInits.clear();
     _initQueue.clear();
     _initQueueBatchTotal = 0;
