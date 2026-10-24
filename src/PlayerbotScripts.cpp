@@ -337,8 +337,11 @@ public:
 
         handler->SendSysMessage("Provisioning bot accounts and characters; this may take a moment...");
 
+        // Gear/teleport goes to the per-tick init queue: initing every new
+        // character inline holds the world thread for minutes and the next
+        // tick's diff idles out every real player's session.
         std::string report;
-        sPlayerbotMgr->CreateBotPopulation(&report);
+        sPlayerbotMgr->CreateBotPopulation(&report, false);
         handler->PSendSysMessage("%s", report.c_str());
         return true;
     }

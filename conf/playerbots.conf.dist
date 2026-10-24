@@ -210,10 +210,12 @@ Playerbots.AutoCreate.MaxLevel = 1
 
 #
 #    Playerbots.AutoCreate.InitOnCreate
-#        Description: When 1, each new character is logged in, geared, and logged
-#                     out during `.playerbots create` (slow for hundreds of bots).
-#                     When 0 (default), create only writes characters; gear/spells
-#                     run on first world login (random pool / .playerbots add).
+#        Description: Ignored by `.playerbots create` and startup auto-create:
+#                     initing every new character inside one call blocks the
+#                     world loop (about 2 s per bot) and idles out real players.
+#                     Create only writes characters; gear/spells run through
+#                     the per-tick init queue on first world login (random
+#                     pool / .playerbots add).
 #                     Use `.playerbots init all` on online bots to re-gear anytime.
 #        Default:     0
 
