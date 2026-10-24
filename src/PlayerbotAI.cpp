@@ -1033,6 +1033,11 @@ void PlayerbotAI::HandleLfg()
         }
         else if (_lfgRoleResponded)
             _lfgRoleResponded = false;
+
+        // Kick votes are started by the real players in the party; bots back them.
+        // UpdateBoot ignores repeat answers and the victim's own (pre-set) vote.
+        if (gstate == lfg::LFG_STATE_BOOT)
+            sLFGMgr->UpdateBoot(guid, true);
     }
     else
         _lfgRoleResponded = false;
