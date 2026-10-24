@@ -605,45 +605,39 @@ void PlayerbotMgr::UpdateLfgAutoJoin(uint32 diff)
         return;
     }
 
-    // Roles already covered by real players (and their party): exclude bot tanks
-    // when a player queued tank, exclude bot healers when a player queued healer.
-    // DPS is never excluded — parties almost always need more damage.
-    uint8 excludedRoles = 0;
-    for (MasterQueue const& mq : masters)
+    // 5-man fill by role: 1 tank, 1 healer, 3 dps. Real party members and bots
+    // already queued use up slots of their role; bots only join for an open
+    // role. Filling by head count alone let surplus roles (two tanks) take every
+    // slot, leaving the group one role short with nobody allowed to join.
+    // Flooding MaxBots into one queue spawned bot-only proposals that raced
+    // eject/teleport and crashed worldserver, so the total stays capped.
+    uint32 needTank = 1, needHeal = 1, needDps = 3;
+    auto takeSlot = [&](uint8 roles) -> bool
     {
-        excludedRoles |= (mq.roles & (lfg::PLAYER_ROLE_TANK | lfg::PLAYER_ROLE_HEALER));
-        if (Group* group = mq.player->GetGroup())
-        {
-            for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
-            {
-                Player* member = itr->GetSource();
-                if (!isRealPlayer(member))
-                    continue;
-                uint8 memberRoles = sLFGMgr->GetRoles(member->GetGUID());
-                if (!memberRoles)
-                    memberRoles = uint8(group->GetMemberRole(member->GetGUID()));
-                excludedRoles |= (memberRoles & (lfg::PLAYER_ROLE_TANK | lfg::PLAYER_ROLE_HEALER));
-            }
-        }
-    }
+        uint32* slot = nullptr;
+        if ((roles & lfg::PLAYER_ROLE_TANK) && needTank)
+            slot = &needTank;
+        else if ((roles & lfg::PLAYER_ROLE_HEALER) && needHeal)
+            slot = &needHeal;
+        else if ((roles & lfg::PLAYER_ROLE_DAMAGE) && needDps)
+            slot = &needDps;
+        if (!slot)
+            return false;
+        --*slot;
+        return true;
+    };
 
-    uint32 botsAlreadyQueued = 0;
-    for (auto const& pair : _bots)
-    {
-        Player* bot = pair.second ? pair.second->GetPlayer() : nullptr;
-        if (!bot || !bot->IsInWorld())
-            continue;
-        lfg::LfgState const st = sLFGMgr->GetState(bot->GetGUID());
-        if (st == lfg::LFG_STATE_QUEUED || st == lfg::LFG_STATE_ROLECHECK || st == lfg::LFG_STATE_PROPOSAL)
-            ++botsAlreadyQueued;
-    }
-
-    // 5-man fill: only queue enough bots to complete one dungeon group.
-    // Flooding MaxBots (default 10) into one queue spawned bot-only proposals
-    // that raced eject/teleport and crashed worldserver.
-    uint32 realQueued = 0;
     {
         std::unordered_set<uint64> counted;
+        auto countReal = [&](Player* member, Group* group)
+        {
+            uint8 memberRoles = sLFGMgr->GetRoles(member->GetGUID());
+            if (!(memberRoles & (lfg::PLAYER_ROLE_TANK | lfg::PLAYER_ROLE_HEALER | lfg::PLAYER_ROLE_DAMAGE)) && group)
+                memberRoles = uint8(group->GetMemberRole(member->GetGUID()));
+            if (!takeSlot(memberRoles))
+                takeSlot(lfg::PLAYER_ROLE_DAMAGE);
+        };
+
         for (MasterQueue const& mq : masters)
         {
             if (Group* group = mq.player->GetGroup())
@@ -652,24 +646,48 @@ void PlayerbotMgr::UpdateLfgAutoJoin(uint32 diff)
                 {
                     if (!counted.insert(slot.guid).second)
                         continue;
-                    if (Player* member = ObjectAccessor::FindPlayerInOrOutOfWorld(slot.guid))
-                    {
-                        if (isRealPlayer(member))
-                            ++realQueued;
-                    }
-                    else if (!IsBot(slot.guid))
-                        ++realQueued;
+                    // Party bots fill their slot the same way real members do
+                    Player* member = ObjectAccessor::FindPlayerInOrOutOfWorld(slot.guid);
+                    if (member)
+                        countReal(member, group);
+                    else
+                        takeSlot(uint8(group->GetMemberRole(slot.guid)));
                 }
             }
             else if (counted.insert(mq.player->GetGUID()).second)
-                ++realQueued;
+                countReal(mq.player, nullptr);
         }
     }
-    uint32 const dungeonSize = 5u;
-    uint32 const fillNeed = (realQueued < dungeonSize) ? (dungeonSize - realQueued) : 0u;
-    uint32 const want = std::min(_joinLfgMaxBots, fillNeed);
+
+    // Solo bots already queued keep their slot; surplus ones (role already
+    // covered) leave so they can't hold up or split the group.
+    uint32 botsAlreadyQueued = 0;
+    for (auto const& pair : _bots)
+    {
+        Player* bot = pair.second ? pair.second->GetPlayer() : nullptr;
+        if (!bot || !bot->IsInWorld() || bot->GetGroup())
+            continue;
+        lfg::LfgState const st = sLFGMgr->GetState(bot->GetGUID());
+        if (st != lfg::LFG_STATE_QUEUED && st != lfg::LFG_STATE_ROLECHECK && st != lfg::LFG_STATE_PROPOSAL)
+            continue;
+        uint8 const queuedRoles = sLFGMgr->GetRoles(bot->GetGUID());
+        if (takeSlot(queuedRoles))
+        {
+            ++botsAlreadyQueued;
+            continue;
+        }
+        if (st == lfg::LFG_STATE_QUEUED)
+        {
+            sLFGMgr->LeaveLfg(bot->GetGUID());
+            SF_LOG_INFO("modules", "[mod-playerbots] Bot '%s' left LFG: %s role already covered.",
+                bot->GetName().c_str(), lfgRoleName(queuedRoles));
+        }
+    }
+
+    uint32 const openSlots = needTank + needHeal + needDps;
+    uint32 const capLeft = (_joinLfgMaxBots > botsAlreadyQueued) ? (_joinLfgMaxBots - botsAlreadyQueued) : 0u;
+    uint32 const slotsLeft = std::min(openSlots, capLeft);
     uint32 botsJoined = 0;
-    uint32 const slotsLeft = (want > botsAlreadyQueued) ? (want - botsAlreadyQueued) : 0;
     if (!slotsLeft)
         return;
 
@@ -697,10 +715,11 @@ void PlayerbotMgr::UpdateLfgAutoJoin(uint32 diff)
             continue;
 
         uint8 const botRole = ai->ComputeLfgRole();
-        // Safeties: player tank → no bot tanks; player healer → no bot healers.
-        if ((botRole & lfg::PLAYER_ROLE_TANK) && (excludedRoles & lfg::PLAYER_ROLE_TANK))
+        if ((botRole & lfg::PLAYER_ROLE_TANK) && !needTank)
             continue;
-        if ((botRole & lfg::PLAYER_ROLE_HEALER) && (excludedRoles & lfg::PLAYER_ROLE_HEALER))
+        if ((botRole & lfg::PLAYER_ROLE_HEALER) && !needHeal)
+            continue;
+        if ((botRole & lfg::PLAYER_ROLE_DAMAGE) && !needDps)
             continue;
 
         MasterQueue const* matched = nullptr;
@@ -742,6 +761,7 @@ void PlayerbotMgr::UpdateLfgAutoJoin(uint32 diff)
 
         std::string const comment = "playerbot";
         sLFGMgr->JoinLfg(bot, botRole, botDungeons, comment);
+        takeSlot(botRole);
         ++botsJoined;
 
         char const* dungeonName = "dungeon";
@@ -757,16 +777,14 @@ void PlayerbotMgr::UpdateLfgAutoJoin(uint32 diff)
             matched->player->GetName().c_str(), lfgRoleName(matched->roles));
     }
 
-    if (!botsJoined && !botsAlreadyQueued)
+    if (botsJoined < slotsLeft)
     {
         MasterQueue const& mq = masters.front();
         SF_LOG_INFO("modules",
-            "[mod-playerbots] LFG fill: %u player(s) queued (e.g. %s as %s, lvl %u) but no eligible bots joined "
-            "(need level±%u, complementary roles; excluded %s%s).",
+            "[mod-playerbots] LFG fill: %u player(s) queued (e.g. %s as %s, lvl %u); no eligible bot for "
+            "%u tank, %u healer, %u dps slot(s) (need level±%u and a matching dungeon).",
             uint32(masters.size()), mq.player->GetName().c_str(), lfgRoleName(mq.roles), mq.level,
-            _joinLfgLevelRange,
-            (excludedRoles & lfg::PLAYER_ROLE_TANK) ? "tank " : "",
-            (excludedRoles & lfg::PLAYER_ROLE_HEALER) ? "healer" : "");
+            needTank, needHeal, needDps, _joinLfgLevelRange);
     }
 }
 
