@@ -1182,6 +1182,46 @@ namespace
         return false;
     }
 
+    // Grimoire of Sacrifice needs a demon out, and a sacrificed Felhunter grants Spell Lock.
+    bool TryWarlockPet(Player* bot)
+    {
+        enum : uint32
+        {
+            SUMMON_IMP            = 688,
+            SUMMON_FELHUNTER      = 691,
+            SUMMON_FELGUARD       = 30146,
+            GRIMOIRE_OF_SACRIFICE = 108503
+        };
+
+        if (bot->IsMounted() || bot->GetVehicle() || bot->HasAura(GRIMOIRE_OF_SACRIFICE))
+            return false;
+
+        bool const sacrifice = bot->HasSpell(GRIMOIRE_OF_SACRIFICE);
+        if (Pet* pet = bot->GetPet())
+        {
+            if (pet->IsAlive())
+                return sacrifice && CanTryCast(bot, GRIMOIRE_OF_SACRIFICE)
+                    && CastSpell(bot, bot, GRIMOIRE_OF_SACRIFICE);
+        }
+
+        uint32 const preferred = !sacrifice
+            && bot->GetTalentSpecialization(bot->GetActiveSpec()) == SPEC_WARLOCK_DEMONOLOGY
+            ? SUMMON_FELGUARD : SUMMON_FELHUNTER;
+
+        PlayerbotAI* ai = GetAI(bot);
+        uint32 const summons[] = { preferred, SUMMON_FELHUNTER, SUMMON_IMP };
+        for (uint32 spellId : summons)
+        {
+            if (!CanTryCast(bot, spellId))
+                continue;
+            if (CastSpell(bot, bot, spellId))
+                return true;
+            if (ai)
+                ai->BackOffSpell(spellId);
+        }
+        return false;
+    }
+
     // Caster GUID → buff spell → member GUIDs who still lacked the aura after a
     // successful raid-wide cast. Cleared when they die so a rez gets another try.
     std::map<uint64, std::map<uint32, std::set<uint64>> > raidBuffRejected;
@@ -1458,6 +1498,8 @@ bool TryMaintainBuffs(Player* bot)
             break;
         case CLASS_WARLOCK:
             if (TryRaidBuff(bot, kSpellPower, 109773))
+                return true;
+            if (TryWarlockPet(bot))
                 return true;
             break;
         case CLASS_DRUID:
