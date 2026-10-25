@@ -3439,28 +3439,45 @@ bool PlayerbotAI::TryAvoidAoe()
     Skyfire::WorldObjectListSearcher<Skyfire::AllWorldObjectsInRange> searcher(_bot, objects, check);
     _bot->VisitNearbyObject(scanRange, searcher);
 
+    // A moving hazard (e.g. a rotating fire wall) also covers the strip it sweeps through next.
+    float constexpr kMovingHazardLead = 5.0f;
+    float constexpr kMovingHazardMargin = 1.0f;
+
     struct Hazard
     {
         float x, y, z;
         float radius;
         float dist;
         uint32 spellId;
+        float dirX, dirY;
+        float lead;
     };
-    Hazard best{ 0, 0, 0, 0, 0, 0 };
+    Hazard best{ 0, 0, 0, 0, 0, 0, 0, 0, 0 };
     bool found = false;
 
-    auto consider = [&](float x, float y, float z, float radius, uint32 spellId)
+    // Distance from (px, py) to the segment the hazard covers: its position plus `lead` yards ahead along (dirX, dirY).
+    auto hazardDist = [](Hazard const& h, float px, float py)
+    {
+        float along = (px - h.x) * h.dirX + (py - h.y) * h.dirY;
+        along = std::max(0.0f, std::min(along, h.lead));
+        float const dx = px - (h.x + h.dirX * along);
+        float const dy = py - (h.y + h.dirY * along);
+        return std::sqrt(dx * dx + dy * dy);
+    };
+
+    auto consider = [&](float x, float y, float z, float radius, uint32 spellId, float dirX = 0.0f, float dirY = 0.0f, float lead = 0.0f)
     {
         if (radius < 0.5f || radius > kMaxRadius)
             return;
         if (std::fabs(_bot->GetPositionZ() - z) > 8.0f)
             return;
-        float const dist = _bot->GetExactDist2d(x, y);
-        if (dist > radius)
+        Hazard hazard{ x, y, z, radius, 0.0f, spellId, dirX, dirY, lead };
+        hazard.dist = hazardDist(hazard, _bot->GetPositionX(), _bot->GetPositionY());
+        if (hazard.dist > radius + (lead > 0.0f ? kMovingHazardMargin : 0.0f))
             return;
-        if (!found || dist < best.dist)
+        if (!found || hazard.dist < best.dist)
         {
-            best = { x, y, z, radius, dist, spellId };
+            best = hazard;
             found = true;
         }
     };
@@ -3558,7 +3575,7 @@ bool PlayerbotAI::TryAvoidAoe()
             continue;
         if (_bot->IsFriendlyTo(unit))
             continue;
-        if (!_bot->IsWithinDist(unit, kMaxRadius, false))
+        if (!_bot->IsWithinDist(unit, kMaxRadius + kMovingHazardLead, false))
             continue;
 
         uint32 spellId = 0;
@@ -3577,8 +3594,10 @@ bool PlayerbotAI::TryAvoidAoe()
                 SpellInfo const* info = aurEff->GetSpellInfo();
                 if (!info)
                     continue;
+                // Not IsPositive(): entry-targeted damage (TARGET_UNIT_DEST_AREA_ENTRY) is classed as positive.
+                // A hostile creature pulsing school damage is enough.
                 SpellInfo const* trigger = sSpellMgr->GetSpellInfo(info->Effects[aurEff->GetEffIndex()].TriggerSpell);
-                if (!trigger || trigger->IsPositive())
+                if (!trigger)
                     continue;
                 for (uint8 j = 0; j < MAX_SPELL_EFFECTS; ++j)
                 {
@@ -3593,7 +3612,12 @@ bool PlayerbotAI::TryAvoidAoe()
                 }
             }
         }
-        consider(unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ(), radius, spellId);
+        // Spline-moving creatures face their direction of travel
+        if (unit->isMoving())
+            consider(unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ(), radius, spellId,
+                std::cos(unit->GetOrientation()), std::sin(unit->GetOrientation()), kMovingHazardLead);
+        else
+            consider(unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ(), radius, spellId);
     }
 
     if (!found)
@@ -3606,7 +3630,8 @@ bool PlayerbotAI::TryAvoidAoe()
         target = nullptr;
 
     bool const melee = !IsRangedClass() && GetCombatRole() != CombatRole::Healer;
-    float const fleeDis = best.radius + 1.0f;
+    bool const moving = best.lead > 0.0f;
+    float const fleeDis = best.radius + 1.0f + best.lead;
 
     struct AngleTry
     {
@@ -3614,7 +3639,16 @@ bool PlayerbotAI::TryAvoidAoe()
         bool strict;
     };
     std::vector<AngleTry> tries;
-    if (target)
+    if (moving)
+    {
+        // Sidestepping only lands back in the sweep: stay ahead of it, or stay behind if it already passed
+        float const along = (_bot->GetPositionX() - best.x) * best.dirX + (_bot->GetPositionY() - best.y) * best.dirY;
+        float const travel = std::atan2(best.dirY, best.dirX) + (along < 0.0f ? float(M_PI) : 0.0f);
+        tries.push_back({ travel, false });
+        tries.push_back({ travel + float(M_PI) / 4.0f, false });
+        tries.push_back({ travel - float(M_PI) / 4.0f, false });
+    }
+    else if (target)
     {
         float const angle = _bot->GetAngle(target);
         bool const tanking = target->GetVictim() == _bot;
@@ -3626,7 +3660,8 @@ bool PlayerbotAI::TryAvoidAoe()
         else if (!melee)
             tries.push_back({ angle + float(M_PI), true });
     }
-    tries.push_back({ _bot->GetAngle(best.x, best.y) + float(M_PI), false });
+    if (!moving)
+        tries.push_back({ _bot->GetAngle(best.x, best.y) + float(M_PI), false });
 
     auto reversedRecently = [&](float angle)
     {
@@ -3673,9 +3708,7 @@ bool PlayerbotAI::TryAvoidAoe()
                     continue;
             }
 
-            float const dx = x - best.x;
-            float const dy = y - best.y;
-            float const score = std::sqrt(dx * dx + dy * dy);
+            float const score = hazardDist(best, x, y);
             if (score <= bestScore)
                 continue;
 
