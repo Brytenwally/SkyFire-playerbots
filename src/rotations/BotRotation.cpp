@@ -12,6 +12,7 @@
 #include "Item.h"
 #include "ItemPrototype.h"
 #include "ObjectAccessor.h"
+#include "Pet.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotMgr.h"
@@ -93,8 +94,8 @@ namespace
             case 19574:  // Bestial Wrath
             case 3045:   // Rapid Fire
             case 82726:  // Fervor
-            case 121818: // Stampede
             case 883:    // Call Pet
+            case 982:    // Revive Pet
             case 136:    // Mend Pet
             case 13165:  // Aspect of the Hawk
             case 109260: // Aspect of the Iron Hawk
@@ -1133,6 +1134,54 @@ namespace
         return CastSpell(bot, bot, spellId);
     }
 
+    // Growl pulls threat off the tank and gets the pet killed; only keep it for solo hunters.
+    void SetPetGrowl(Pet* pet, bool enabled)
+    {
+        enum : uint32 { GROWL = 2649 };
+
+        SpellInfo const* growl = sSpellMgr->GetSpellInfo(GROWL);
+        if (!growl)
+            return;
+
+        bool on = false;
+        for (uint8 i = 0; i < pet->GetPetAutoSpellSize() && !on; ++i)
+            on = pet->GetPetAutoSpellOnPos(i) == GROWL;
+        if (on == enabled)
+            return;
+
+        pet->ToggleAutocast(growl, enabled);
+        if (CharmInfo* charmInfo = pet->GetCharmInfo())
+            charmInfo->SetSpellAutocast(growl, enabled);
+    }
+
+    // Call Pet 1 brings out the slot 0 pet; once that pet has died only Revive Pet
+    // summons it again. Failed attempts back off so the other one gets its turn.
+    bool TryHunterPet(Player* bot)
+    {
+        enum : uint32 { CALL_PET_1 = 883, REVIVE_PET = 982 };
+
+        if (bot->IsMounted() || bot->GetVehicle())
+            return false;
+        Pet* pet = bot->GetPet();
+        if (pet && pet->IsAlive())
+        {
+            SetPetGrowl(pet, !bot->GetGroup());
+            return false;
+        }
+
+        PlayerbotAI* ai = GetAI(bot);
+        for (uint32 spellId : { pet ? REVIVE_PET : CALL_PET_1, REVIVE_PET })
+        {
+            if (!CanTryCast(bot, spellId))
+                continue;
+            if (CastSpell(bot, bot, spellId))
+                return true;
+            if (ai)
+                ai->BackOffSpell(spellId);
+        }
+        return false;
+    }
+
     // Caster GUID → buff spell → member GUIDs who still lacked the aura after a
     // successful raid-wide cast. Cleared when they die so a rez gets another try.
     std::map<uint64, std::map<uint32, std::set<uint64>> > raidBuffRejected;
@@ -1401,6 +1450,10 @@ bool TryMaintainBuffs(Player* bot)
             break;
         case CLASS_MAGE:
             if (TryRaidBuff(bot, kSpellPower, 1459))
+                return true;
+            break;
+        case CLASS_HUNTER:
+            if (TryHunterPet(bot))
                 return true;
             break;
         case CLASS_WARLOCK:

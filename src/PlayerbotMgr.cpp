@@ -25,6 +25,7 @@
 #include "Map.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "Pet.h"
 #include "Player.h"
 #include "RBAC.h"
 #include "SharedDefines.h"
@@ -2084,6 +2085,8 @@ namespace
             TryLearnSpell(bot, 3044);  // Arcane Shot
             TryLearnSpell(bot, 1978);  // Serpent Sting
             TryLearnSpell(bot, 13165); // Aspect of the Hawk
+            TryLearnSpell(bot, 883);   // Call Pet 1
+            TryLearnSpell(bot, 982);   // Revive Pet
         }
         if (bot->getClass() == CLASS_PALADIN)
         {
@@ -2607,6 +2610,76 @@ namespace
     void GiveRestConsumables(Player* /*bot*/)
     {
     }
+
+    // Stampede summons the pets in Call Pet slots 2-5; empty slots only clone the
+    // current pet, so give each free slot its own non-exotic beast.
+    void FillHunterPetSlots(Player* bot)
+    {
+        enum : uint32 { TAME_BEAST = 1515 };
+
+        if (bot->getClass() != CLASS_HUNTER || bot->getLevel() < 10)
+            return;
+
+        static std::vector<std::pair<uint32, uint32>> const beasts = []
+        {
+            std::vector<std::pair<uint32, uint32>> list;
+            if (QueryResult result = WorldDatabase.PQuery(
+                "SELECT entry, family FROM creature_template WHERE (type_flags & %u) <> 0 "
+                "AND family IN (1,2,3,4,5,6,7,8,9,11,12,20,21,24,25,26,27,31,34,35,37)",
+                uint32(CREATURE_TYPEFLAGS_TAMEABLE)))
+            {
+                do
+                {
+                    Field* fields = result->Fetch();
+                    list.emplace_back(fields[0].GetUInt32(), fields[1].GetUInt8());
+                } while (result->NextRow());
+            }
+            return list;
+        }();
+        if (beasts.empty())
+            return;
+
+        bool slotUsed[MAX_ACTIVE_PETS] = {};
+        std::unordered_set<uint32> usedFamilies;
+        if (QueryResult result = CharacterDatabase.PQuery(
+            "SELECT slot, entry FROM character_pet WHERE owner = %u AND slot <= %u",
+            bot->GetGUIDLow(), uint32(PET_SAVE_LAST_ACTIVE_SLOT)))
+        {
+            do
+            {
+                Field* fields = result->Fetch();
+                slotUsed[fields[0].GetUInt8()] = true;
+                if (CreatureTemplate const* info = sObjectMgr->GetCreatureTemplate(fields[1].GetUInt32()))
+                    usedFamilies.insert(info->family);
+            } while (result->NextRow());
+        }
+
+        for (uint8 slot = PET_SAVE_FIRST_ACTIVE_SLOT + 1; slot <= PET_SAVE_LAST_ACTIVE_SLOT; ++slot)
+        {
+            if (slotUsed[slot])
+                continue;
+
+            uint32 entry = 0;
+            for (int tries = 0; tries < 20 && !entry; ++tries)
+            {
+                std::pair<uint32, uint32> const& beast = beasts[std::rand() % beasts.size()];
+                if (usedFamilies.insert(beast.second).second)
+                    entry = beast.first;
+            }
+            if (!entry)
+                continue;
+
+            Pet* pet = bot->CreateTamedPetFrom(entry, TAME_BEAST);
+            if (!pet)
+                continue;
+
+            // Dismiss-mode save keeps the pet in its Call Pet slot without making it current.
+            pet->SetOwnerGUID(bot->GetGUID());
+            pet->SetSlot(slot);
+            pet->SavePetToDB(PET_SAVE_NOT_IN_SLOT);
+            delete pet;
+        }
+    }
 }
 
 uint32 PlayerbotMgr::CreateBotPopulation(std::string* report, bool allowInitOnCreate)
@@ -2814,6 +2887,7 @@ void PlayerbotMgr::InitializeBot(Player* bot, int roleOverride, uint32 specOverr
 
     GearBotSets(bot, role, specId, qualityFloor, qualityCap);
     GiveRestConsumables(bot);
+    FillHunterPetSlots(bot);
 
     // After relevel + gear so the destination matches the bot's final level.
     // Levels 1–5: auto skips; player `tele` resets to homebind/spawn.
