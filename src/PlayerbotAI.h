@@ -341,6 +341,9 @@ private:
     BotTargetValues _targets;
     time_t _combatStartTime = 0;
     time_t _lastCombatFlee = 0;
+    // Last avoid-aoe sidestep. The next dodge will not reverse straight back into the hazard.
+    float _lastAvoidAngle = 0.0f;
+    uint32 _lastAvoidMs = 0;
     time_t _pullStartTime = 0;
     enum class PullPhase : uint8 { None, Reach, Opener };
     PullPhase _pullPhase = PullPhase::None;
@@ -378,7 +381,7 @@ private:
     bool _aoe;           // multi-target rotation branches
     bool _boost;         // trinkets + offensive racials
     bool _cc;            // crowd control utilities
-    bool _avoidAoe;      // step out of damaging ground effects
+    bool _avoidAoe;      // step out of ground effects, traps, and trigger creatures
     bool _debugCombat;   // say casting / combat actions in chat
 
     bool _forceRest;

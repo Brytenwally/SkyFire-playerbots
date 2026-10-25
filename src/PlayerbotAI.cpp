@@ -20,6 +20,7 @@
 #include "DatabaseEnv.h"
 #include "DBCStores.h"
 #include "DynamicObject.h"
+#include "GameObject.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
 #include "Group.h"
@@ -1195,7 +1196,7 @@ bool PlayerbotAI::HandleCombat()
         return true;
     }
 
-    // Step out of damaging ground effects when +avoid aoe (before chase/cast).
+    // Step out of ground effects, traps, and trigger creatures when +avoid aoe.
     if ((_bot->IsInCombat() || GroupInCombat()) && TryAvoidAoe())
         return true;
 
@@ -3428,14 +3429,9 @@ bool PlayerbotAI::TryAvoidAoe()
 {
     if (!_bot || _clientControlled || _stay || !_avoidAoe)
         return false;
-    if (GetCombatRole() == CombatRole::Tank && _tankMode)
-        return false;
-    if (IsBusyCasting(_bot))
-        return false;
 
-    time_t const now = time(nullptr);
-    if (_lastCombatFlee && now - _lastCombatFlee < 1)
-        return false;
+    // Ignore room-wide effects. Same cap the upstream avoid action uses.
+    float constexpr kMaxRadius = 15.0f;
 
     std::list<WorldObject*> objects;
     float const scanRange = 40.0f;
@@ -3443,67 +3439,274 @@ bool PlayerbotAI::TryAvoidAoe()
     Skyfire::WorldObjectListSearcher<Skyfire::AllWorldObjectsInRange> searcher(_bot, objects, check);
     _bot->VisitNearbyObject(scanRange, searcher);
 
-    DynamicObject* hazard = nullptr;
-    float hazardRadius = 0.0f;
+    struct Hazard
+    {
+        float x, y, z;
+        float radius;
+        float dist;
+        uint32 spellId;
+    };
+    Hazard best{ 0, 0, 0, 0, 0, 0 };
+    bool found = false;
+
+    auto consider = [&](float x, float y, float z, float radius, uint32 spellId)
+    {
+        if (radius < 0.5f || radius > kMaxRadius)
+            return;
+        if (std::fabs(_bot->GetPositionZ() - z) > 8.0f)
+            return;
+        float const dist = _bot->GetExactDist2d(x, y);
+        if (dist > radius)
+            return;
+        if (!found || dist < best.dist)
+        {
+            best = { x, y, z, radius, dist, spellId };
+            found = true;
+        }
+    };
+
+    auto spellRadius = [](SpellInfo const* info, Unit* caster) -> float
+    {
+        float radius = 0.0f;
+        if (!info)
+            return radius;
+        for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+        {
+            float const r = info->Effects[i].CalcRadius(caster);
+            if (r > radius)
+                radius = r;
+        }
+        return radius;
+    };
 
     for (WorldObject* obj : objects)
     {
-        if (!obj || obj->GetTypeId() != TypeID::TYPEID_DYNAMICOBJECT)
+        if (!obj)
             continue;
 
-        DynamicObject* dyn = static_cast<DynamicObject*>(obj);
-        float const radius = dyn->GetRadius();
-        if (radius < 1.0f || radius > 40.0f)
-            continue;
-        if (!_bot->IsWithinDist(dyn, radius, false))
-            continue;
-
-        SpellInfo const* info = sSpellMgr->GetSpellInfo(dyn->GetSpellId());
-        if (!info || info->IsPositive())
-            continue;
-
-        Unit* caster = dyn->GetCaster();
-        if (caster && (caster == _bot || _bot->IsFriendlyTo(caster)))
-            continue;
-
-        bool damaging = false;
-        for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+        if (obj->GetTypeId() == TypeID::TYPEID_DYNAMICOBJECT)
         {
-            SpellEffectInfo const& effect = info->Effects[i];
-            if (!effect.IsEffect())
+            DynamicObject* dyn = static_cast<DynamicObject*>(obj);
+            SpellInfo const* info = sSpellMgr->GetSpellInfo(dyn->GetSpellId());
+            if (!info || info->IsPositive())
                 continue;
-            if (effect.IsEffect(SPELL_EFFECT_SCHOOL_DAMAGE)
-                || effect.ApplyAuraName == SPELL_AURA_PERIODIC_DAMAGE
-                || effect.ApplyAuraName == SPELL_AURA_PERIODIC_DAMAGE_PERCENT
-                || effect.ApplyAuraName == SPELL_AURA_PERIODIC_LEECH)
+
+            Unit* caster = dyn->GetCaster();
+            if (caster && (caster == _bot || _bot->IsFriendlyTo(caster)))
+                continue;
+
+            bool damaging = false;
+            for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
             {
-                damaging = true;
-                break;
+                SpellEffectInfo const& effect = info->Effects[i];
+                if (!effect.IsEffect())
+                    continue;
+                if (effect.IsEffect(SPELL_EFFECT_SCHOOL_DAMAGE)
+                    || effect.ApplyAuraName == SPELL_AURA_PERIODIC_DAMAGE
+                    || effect.ApplyAuraName == SPELL_AURA_PERIODIC_DAMAGE_PERCENT
+                    || effect.ApplyAuraName == SPELL_AURA_PERIODIC_LEECH)
+                {
+                    damaging = true;
+                    break;
+                }
+            }
+            if (!damaging)
+                continue;
+
+            consider(dyn->GetPositionX(), dyn->GetPositionY(), dyn->GetPositionZ(), dyn->GetRadius(), dyn->GetSpellId());
+            continue;
+        }
+
+        if (obj->GetTypeId() == TypeID::TYPEID_GAMEOBJECT)
+        {
+            GameObject* go = obj->ToGameObject();
+            GameObjectTemplate const* goInfo = go ? go->GetGOInfo() : nullptr;
+            if (!go || !goInfo)
+                continue;
+
+            if (Unit* owner = go->GetOwner())
+                if (owner == _bot || _bot->IsFriendlyTo(owner))
+                    continue;
+
+            if (goInfo->type == GAMEOBJECT_TYPE_TRAP && goInfo->trap.type == 0 && goInfo->trap.spellId)
+            {
+                SpellInfo const* info = sSpellMgr->GetSpellInfo(goInfo->trap.spellId);
+                if (!info || info->IsPositive())
+                    continue;
+                float radius = float(goInfo->trap.radius);
+                if (radius < 0.5f)
+                    radius = spellRadius(info, nullptr);
+                consider(go->GetPositionX(), go->GetPositionY(), go->GetPositionZ(), radius, goInfo->trap.spellId);
+            }
+            else if (goInfo->type == GAMEOBJECT_TYPE_AREADAMAGE
+                && (goInfo->areadamage.damageMin || goInfo->areadamage.damageMax))
+            {
+                consider(go->GetPositionX(), go->GetPositionY(), go->GetPositionZ(),
+                    float(goInfo->areadamage.radius), 0);
+            }
+            continue;
+        }
+
+        // Unselectable creature pulsing school damage (rotating walls, fissures).
+        if (obj->GetTypeId() != TypeID::TYPEID_UNIT)
+            continue;
+
+        Unit* unit = obj->ToUnit();
+        if (!unit || !unit->IsAlive() || unit->GetTypeId() == TypeID::TYPEID_PLAYER)
+            continue;
+        if (!unit->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE))
+            continue;
+        if (_bot->IsFriendlyTo(unit))
+            continue;
+        if (!_bot->IsWithinDist(unit, kMaxRadius, false))
+            continue;
+
+        uint32 spellId = 0;
+        float radius = 0.0f;
+        Unit::AuraEffectList const* lists[2] =
+        {
+            &unit->GetAuraEffectsByType(SPELL_AURA_PERIODIC_TRIGGER_SPELL),
+            &unit->GetAuraEffectsByType(SPELL_AURA_PERIODIC_TRIGGER_SPELL_WITH_VALUE)
+        };
+        for (Unit::AuraEffectList const* list : lists)
+        {
+            for (AuraEffect const* aurEff : *list)
+            {
+                if (!aurEff)
+                    continue;
+                SpellInfo const* info = aurEff->GetSpellInfo();
+                if (!info)
+                    continue;
+                SpellInfo const* trigger = sSpellMgr->GetSpellInfo(info->Effects[aurEff->GetEffIndex()].TriggerSpell);
+                if (!trigger || trigger->IsPositive())
+                    continue;
+                for (uint8 j = 0; j < MAX_SPELL_EFFECTS; ++j)
+                {
+                    if (trigger->Effects[j].Effect != SPELL_EFFECT_SCHOOL_DAMAGE)
+                        continue;
+                    float const r = trigger->Effects[j].CalcRadius(unit);
+                    if (r > radius)
+                    {
+                        radius = r;
+                        spellId = trigger->Id;
+                    }
+                }
             }
         }
-        if (!damaging)
-            continue;
-
-        hazard = dyn;
-        hazardRadius = radius;
-        break;
+        consider(unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ(), radius, spellId);
     }
 
-    if (!hazard)
+    if (!found)
         return false;
 
-    float const angle = hazard->GetAngle(_bot);
-    float const dist = hazardRadius + 3.0f;
-    float x = hazard->GetPositionX() + dist * std::cos(angle);
-    float y = hazard->GetPositionY() + dist * std::sin(angle);
-    float z = _bot->GetPositionZ();
-    _bot->UpdateAllowedPositionZ(x, y, z);
+    Unit* target = _bot->GetVictim();
+    if (!target || !target->IsAlive() || !_bot->IsValidAttackTarget(target))
+        target = SelectTarget();
+    if (target && (!target->IsAlive() || !_bot->IsValidAttackTarget(target)))
+        target = nullptr;
 
-    if (!BotMovement::MovePoint(_bot, x, y, z))
+    bool const melee = !IsRangedClass() && GetCombatRole() != CombatRole::Healer;
+    float const fleeDis = best.radius + 1.0f;
+
+    struct AngleTry
+    {
+        float angle;
+        bool strict;
+    };
+    std::vector<AngleTry> tries;
+    if (target)
+    {
+        float const angle = _bot->GetAngle(target);
+        bool const tanking = target->GetVictim() == _bot;
+        tries.push_back({ angle + float(M_PI) / 2.0f, false });
+        tries.push_back({ angle - float(M_PI) / 2.0f, false });
+        tries.push_back({ angle, true });
+        if (tanking)
+            tries.push_back({ angle + float(M_PI), false });
+        else if (!melee)
+            tries.push_back({ angle + float(M_PI), true });
+    }
+    tries.push_back({ _bot->GetAngle(best.x, best.y) + float(M_PI), false });
+
+    auto reversedRecently = [&](float angle)
+    {
+        if (!_lastAvoidMs || getMSTimeDiff(_lastAvoidMs, getMSTime()) > 5000)
+            return false;
+        float const cur = Position::NormalizeOrientation(angle);
+        float const rev = Position::NormalizeOrientation(_lastAvoidAngle + float(M_PI));
+        float diff = std::fabs(rev - cur);
+        if (diff > float(M_PI))
+            diff = (2.0f * float(M_PI)) - diff;
+        return diff < float(M_PI) / 4.0f;
+    };
+
+    float bestScore = best.dist;
+    bool have = false;
+    float destX = 0.0f, destY = 0.0f, destZ = 0.0f, destAngle = 0.0f;
+
+    auto attempt = [&](bool allowReverse)
+    {
+        for (AngleTry const& tryAngle : tries)
+        {
+            float const angle = Position::NormalizeOrientation(tryAngle.angle);
+            if (!allowReverse && reversedRecently(angle))
+                continue;
+
+            float x = _bot->GetPositionX() + std::cos(angle) * fleeDis;
+            float y = _bot->GetPositionY() + std::sin(angle) * fleeDis;
+            float z = _bot->GetPositionZ();
+            _bot->UpdateAllowedPositionZ(x, y, z);
+            if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
+                continue;
+            if (std::fabs(z - _bot->GetPositionZ()) > 6.0f)
+                continue;
+
+            if (tryAngle.strict && target)
+            {
+                float const destDist = target->GetExactDist2d(x, y);
+                if (melee)
+                {
+                    if (_bot->IsWithinMeleeRange(target) && destDist - target->GetCombatReach() > 8.0f)
+                        continue;
+                }
+                else if (destDist > BOT_CAST_DIST || destDist < 8.0f)
+                    continue;
+            }
+
+            float const dx = x - best.x;
+            float const dy = y - best.y;
+            float const score = std::sqrt(dx * dx + dy * dy);
+            if (score <= bestScore)
+                continue;
+
+            bestScore = score;
+            destX = x;
+            destY = y;
+            destZ = z;
+            destAngle = angle;
+            have = true;
+        }
+    };
+
+    attempt(false);
+    if (!have)
+        attempt(true);
+    if (!have)
         return false;
 
-    _lastCombatFlee = now;
+    if (IsBusyCasting(_bot))
+        _bot->InterruptNonMeleeSpells(false);
+
+    if (!BotMovement::MovePoint(_bot, destX, destY, destZ))
+        return false;
+
+    _lastAvoidAngle = destAngle;
+    _lastAvoidMs = getMSTime();
     _chaseGuid = 0;
+    if (best.spellId)
+        DebugCombat("Avoid " + std::to_string(best.spellId));
+    else
+        DebugCombat("Avoid hazard");
     return true;
 }
 
