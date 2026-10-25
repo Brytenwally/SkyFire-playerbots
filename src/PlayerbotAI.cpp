@@ -2186,6 +2186,16 @@ void PlayerbotAI::DoRotation(Unit* target)
         uint32 const focus = _bot->GetPower(POWER_FOCUS);
         HunterDebugLog(std::string("TICK decide ") + BuildHunterStateSnapshot(target));
 
+        if (uint32 const specShot = BotRotation::SelectNextSpell(_bot, target))
+        {
+            bool const cast = BotRotation::IsSelfCastSpell(specShot)
+                ? BotRotation::CastSpell(_bot, target, specShot)
+                : BotRotation::CastHunterShot(_bot, target, specShot);
+            if (cast)
+                return;
+            HunterDebugLog(std::string("Spec shot FAILED id=") + std::to_string(specShot));
+        }
+
         if (_bot->HasSpell(1978) && !target->GetAura(118253) && !target->GetAura(1978))
         {
             HunterDebugLog("TRY Serpent Sting");

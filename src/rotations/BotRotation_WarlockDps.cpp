@@ -11,27 +11,54 @@ namespace BotRotation
 {
 namespace
 {
+    enum WarlockSpells : uint32
+    {
+        DARK_INTENT      = 109773,
+        SUMMON_DOOMGUARD = 18540,
+        LIFE_TAP         = 1454,
+        SHADOW_BOLT      = 686,    // low-level until Incinerate
+        CORRUPTION       = 172,    // aura 146739
+    };
+
     enum DestroSpells : uint32
     {
-        DARK_INTENT = 109773,
-        IMMOLATE    = 348,
-        CONFLAGRATE = 17962,
-        CHAOS_BOLT  = 116858,
-        INCINERATE  = 29722,
-        SHADOW_BOLT = 686, // low-level until Incinerate
+        IMMOLATE          = 348,
+        CONFLAGRATE       = 17962,
+        CHAOS_BOLT        = 116858,
+        INCINERATE        = 29722,
+        SHADOWBURN        = 17877,
+        HAVOC             = 80240,
+        FIRE_AND_BRIMSTONE = 108683,
+        DARK_SOUL_INSTABILITY = 113858,
     };
 
     enum DemoSpells : uint32
     {
-        DARK_INTENT_DEMO = 109773,
-        CORRUPTION       = 172,    // aura 146739
         HAND_OF_GULDAN   = 105174,
         SOUL_FIRE        = 6353,
-        SHADOW_BOLT_DEMO = 686,
         METAMORPHOSIS    = 103958,
         TOUCH_OF_CHAOS   = 103964,
-        MOLTEN_CORE      = 122351,
+        DOOM             = 603,
+        MOLTEN_CORE      = 122355,
+        DARK_SOUL_KNOWLEDGE = 113861,
     };
+
+    float ManaPct(Player* bot)
+    {
+        return bot->GetMaxPower(POWER_MANA)
+            ? (100.0f * float(bot->GetPower(POWER_MANA)) / float(bot->GetMaxPower(POWER_MANA))) : 100.0f;
+    }
+
+    uint32 SelectWarlockCooldowns(Context const& ctx, uint32 darkSoul)
+    {
+        if (!WantsCooldowns(ctx))
+            return 0;
+        if (CanTryCast(ctx.bot, SUMMON_DOOMGUARD))
+            return SUMMON_DOOMGUARD;
+        if (CanTryCast(ctx.bot, darkSoul))
+            return darkSoul;
+        return 0;
+    }
 }
 
 uint32 SelectDestruction(Context const& ctx)
@@ -41,28 +68,43 @@ uint32 SelectDestruction(Context const& ctx)
     if (!bot || !target)
         return 0;
 
-    uint32 const embers = bot->GetPower(POWER_BURNING_EMBERS);
+    // Burning Embers are stored x10 (10 = one full ember).
+    uint32 const embers = bot->GetPower(POWER_BURNING_EMBERS) / 10;
+    bool const darkSoul = HasAuraUp(bot, DARK_SOUL_INSTABILITY);
 
     if (!HasAuraUp(bot, DARK_INTENT) && CanTryCast(bot, DARK_INTENT))
         return DARK_INTENT;
 
-    // Immolate (keep active)
-    if (NeedsMyAuraRefresh(bot, target, IMMOLATE, 3.0f) && CanTryCast(bot, IMMOLATE))
+    if (uint32 const cd = SelectWarlockCooldowns(ctx, DARK_SOUL_INSTABILITY))
+        return cd;
+
+    // Fire and Brimstone is a toggle: on for packs, off again for single targets.
+    bool const brimstone = HasAuraUp(bot, FIRE_AND_BRIMSTONE);
+    if (((ctx.enemies >= 3 && embers >= 1) != brimstone) && CanTryCast(bot, FIRE_AND_BRIMSTONE))
+        return FIRE_AND_BRIMSTONE;
+
+    if (NeedsMyAuraRefresh(bot, target, IMMOLATE, 4.5f) && CanTryCast(bot, IMMOLATE))
         return IMMOLATE;
 
-    // Conflagrate (build Burning Embers)
+    if (ctx.enemies == 2 && embers >= 1 && CanTryCast(bot, HAVOC))
+        return HAVOC;
+
+    if (ctx.targetHealthPct < 20.0f && embers >= 1 && CanTryCast(bot, SHADOWBURN))
+        return SHADOWBURN;
+
+    // Spend embers before they cap, or burst them inside Dark Soul.
+    if (!brimstone && (embers >= 3 || (darkSoul && embers >= 1)) && CanTryCast(bot, CHAOS_BOLT))
+        return CHAOS_BOLT;
+
     if (CanTryCast(bot, CONFLAGRATE))
         return CONFLAGRATE;
 
-    // Chaos Bolt (dump Embers)
-    if (embers >= 1 && CanTryCast(bot, CHAOS_BOLT))
-        return CHAOS_BOLT;
-
-    // Incinerate filler (Shadow Bolt if Incinerate unknown)
     if (CanTryCast(bot, INCINERATE))
         return INCINERATE;
     if (CanTryCast(bot, SHADOW_BOLT))
         return SHADOW_BOLT;
+    if (ManaPct(bot) < 30.0f && CanTryCast(bot, LIFE_TAP))
+        return LIFE_TAP;
 
     return 0;
 }
@@ -76,31 +118,45 @@ uint32 SelectDemonology(Context const& ctx)
 
     uint32 const fury = bot->GetPower(POWER_DEMONIC_FURY);
     bool const meta = HasAuraUp(bot, METAMORPHOSIS);
+    bool const darkSoul = HasAuraUp(bot, DARK_SOUL_KNOWLEDGE);
 
-    if (!HasAuraUp(bot, DARK_INTENT_DEMO) && CanTryCast(bot, DARK_INTENT_DEMO))
-        return DARK_INTENT_DEMO;
+    if (!HasAuraUp(bot, DARK_INTENT) && CanTryCast(bot, DARK_INTENT))
+        return DARK_INTENT;
 
-    // Corruption (keep active)
-    if (NeedsMyAuraRefresh(bot, target, CORRUPTION, 3.0f) && CanTryCast(bot, CORRUPTION))
+    if (uint32 const cd = SelectWarlockCooldowns(ctx, DARK_SOUL_KNOWLEDGE))
+        return cd;
+
+    if (meta)
+    {
+        // Metamorphosis drains Fury every second; drop out before it runs dry.
+        if (fury < 150 && !darkSoul)
+        {
+            bot->RemoveAurasDueToSpell(METAMORPHOSIS);
+            return 0;
+        }
+        if (NeedsMyAuraRefresh(bot, target, DOOM, 18.0f) && CanTryCast(bot, DOOM))
+            return DOOM;
+        if (CanTryCast(bot, TOUCH_OF_CHAOS))
+            return TOUCH_OF_CHAOS;
+        return 0;
+    }
+
+    if (NeedsMyAuraRefresh(bot, target, CORRUPTION, 5.0f) && CanTryCast(bot, CORRUPTION))
         return CORRUPTION;
 
-    // Metamorphosis to dump Demonic Fury → Touch of Chaos
-    if (!meta && fury >= 800 && CanTryCast(bot, METAMORPHOSIS))
+    if ((fury >= 750 || (darkSoul && fury >= 300)) && CanTryCast(bot, METAMORPHOSIS))
         return METAMORPHOSIS;
-    if (meta && CanTryCast(bot, TOUCH_OF_CHAOS))
-        return TOUCH_OF_CHAOS;
 
-    // Hand of Gul'dan (build Demonic Fury)
     if (CanTryCast(bot, HAND_OF_GULDAN))
         return HAND_OF_GULDAN;
 
-    // Soul Fire on Molten Core proc
-    if (HasAuraUp(bot, MOLTEN_CORE) && CanTryCast(bot, SOUL_FIRE))
+    if ((HasAuraUp(bot, MOLTEN_CORE) || ctx.targetHealthPct <= 25.0f) && CanTryCast(bot, SOUL_FIRE))
         return SOUL_FIRE;
 
-    // Shadow Bolt filler
-    if (CanTryCast(bot, SHADOW_BOLT_DEMO))
-        return SHADOW_BOLT_DEMO;
+    if (CanTryCast(bot, SHADOW_BOLT))
+        return SHADOW_BOLT;
+    if (ManaPct(bot) < 30.0f && CanTryCast(bot, LIFE_TAP))
+        return LIFE_TAP;
 
     return 0;
 }

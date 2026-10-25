@@ -77,6 +77,9 @@ namespace BotRotation
 
     // Helpers used by per-spec lists.
     uint32 CountNearbyEnemies(Player* bot, float range);
+    // Major (multi-minute) cooldowns: +boost and a target worth it (boss, elite,
+    // player) or a pack of 3+, so open-world trash doesn't eat them.
+    bool WantsCooldowns(Context const& ctx);
     // Nearest valid hostile other than `exclude` (for Havoc / multi-DoT).
     Unit* FindSecondaryEnemy(Player* bot, Unit* exclude, float range);
     // MoP often applies a different aura ID than the cast spell (e.g. Corruption

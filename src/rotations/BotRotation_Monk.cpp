@@ -40,6 +40,18 @@ namespace
         LIGHT_STAGGER       = 124275,
         MODERATE_STAGGER    = 124274,
         HEAVY_STAGGER       = 124273,
+
+        // Windwalker
+        RISING_SUN_KICK_DEBUFF = 130320,
+        TIGEREYE_BREW_STACKS = 125195,
+        TIGEREYE_BREW_USE   = 116740,
+        ENERGIZING_BREW     = 115288,
+        TOUCH_OF_DEATH      = 115080,
+        DEATH_NOTE          = 121125,
+        COMBO_BREAKER_BOK   = 116768,
+        COMBO_BREAKER_TP    = 118864,
+        INVOKE_XUEN         = 123904,
+        CHI_BURST           = 123986,
     };
 }
 
@@ -132,22 +144,81 @@ uint32 SelectWindwalker(Context const& ctx)
     if (!bot)
         return 0;
 
+    Unit* target = ctx.target;
     if (!HasAuraUp(bot, STANCE_FIERCE_TIGER) && CanTryCast(bot, STANCE_FIERCE_TIGER))
         return STANCE_FIERCE_TIGER;
+    if (!target)
+        return 0;
 
-    if (CanTryCast(bot, RISING_SUN_KICK))
-        return RISING_SUN_KICK;
+    uint32 const chi = bot->GetPower(POWER_CHI);
+    uint32 const maxChi = bot->GetMaxPower(POWER_CHI);
+    uint32 const energy = bot->GetPower(POWER_ENERGY);
+    // Energy regen is ~10/s, so "seconds until capped" maps onto an energy threshold.
+    bool const notCappingSoon = energy < 60;
+    float const tigerPower = AuraRemains(bot, TIGER_POWER);
+    float const sunKick = MyAuraRemains(bot, target, RISING_SUN_KICK_DEBUFF);
+    bool const brewing = HasAuraUp(bot, TIGEREYE_BREW_USE);
 
-    if (NeedsMyAuraRefresh(bot, bot, TIGER_POWER, 3.0f) && CanTryCast(bot, TIGER_PALM))
+    if (chi <= 2 && CanTryCast(bot, CHI_BREW))
+        return CHI_BREW;
+    if (tigerPower <= 3.0f && chi >= 1 && CanTryCast(bot, TIGER_PALM))
         return TIGER_PALM;
 
-    if (CanTryCast(bot, FISTS_OF_FURY))
+    uint32 const brewStacks = AuraStacks(bot, TIGEREYE_BREW_STACKS);
+    if (!brewing && (brewStacks >= 20 || (chi >= 2 && brewStacks >= 10 && sunKick > 0.0f && tigerPower > 0.0f))
+        && CanTryCast(bot, TIGEREYE_BREW_USE))
+        return TIGEREYE_BREW_USE;
+    if (energy < 50 && CanTryCast(bot, ENERGIZING_BREW))
+        return ENERGIZING_BREW;
+
+    if (sunKick <= 0.0f && chi >= 2 && CanTryCast(bot, RISING_SUN_KICK))
+        return RISING_SUN_KICK;
+    if (brewing && WantsCooldowns(ctx) && CanTryCast(bot, INVOKE_XUEN))
+        return INVOKE_XUEN;
+
+    // Death Note: Touch of Death is usable on this target.
+    if (HasAuraUp(bot, DEATH_NOTE) && chi >= 3 && CanTryCast(bot, TOUCH_OF_DEATH))
+        return TOUCH_OF_DEATH;
+
+    if (ctx.enemies >= 3)
+    {
+        if (CanTryCast(bot, RUSHING_JADE_WIND))
+            return RUSHING_JADE_WIND;
+        if (CanTryCast(bot, CHI_WAVE))
+            return CHI_WAVE;
+        if (CanTryCast(bot, CHI_BURST))
+            return CHI_BURST;
+        if (chi >= maxChi && CanTryCast(bot, RISING_SUN_KICK))
+            return RISING_SUN_KICK;
+        if (!bot->HasSpell(RUSHING_JADE_WIND) && energy < 60 && CanTryCast(bot, SPINNING_CRANE_KICK))
+            return SPINNING_CRANE_KICK;
+    }
+
+    if (chi >= 3 && notCappingSoon && tigerPower > 4.0f && !HasAuraUp(bot, ENERGIZING_BREW)
+        && CanTryCast(bot, FISTS_OF_FURY))
         return FISTS_OF_FURY;
+    if (chi >= 2 && CanTryCast(bot, RISING_SUN_KICK))
+        return RISING_SUN_KICK;
 
-    if (CanTryCast(bot, BLACKOUT_KICK))
+    if (energy < 80)
+    {
+        if (CanTryCast(bot, CHI_WAVE))
+            return CHI_WAVE;
+        if (CanTryCast(bot, CHI_BURST))
+            return CHI_BURST;
+    }
+
+    if (HasAuraUp(bot, COMBO_BREAKER_BOK) && CanTryCast(bot, BLACKOUT_KICK))
         return BLACKOUT_KICK;
-
-    if (CanTryCast(bot, JAB))
+    if (HasAuraUp(bot, COMBO_BREAKER_TP) && AuraRemains(bot, COMBO_BREAKER_TP) <= 2.0f
+        && CanTryCast(bot, TIGER_PALM))
+        return TIGER_PALM;
+    if (chi + 2 <= maxChi && CanTryCast(bot, JAB))
+        return JAB;
+    if (chi >= 2 && CanTryCast(bot, BLACKOUT_KICK))
+        return BLACKOUT_KICK;
+    // Low level: Jab even at near-full Chi rather than idling.
+    if (chi < maxChi && CanTryCast(bot, JAB))
         return JAB;
 
     return 0;

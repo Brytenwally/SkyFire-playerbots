@@ -44,7 +44,7 @@ uint32 SelectHolyPaladinDps(Context const& ctx)
             return 20165;
     }
 
-    if (CanTryCast(bot, AVENGING_WRATH))
+    if (WantsCooldowns(ctx) && CanTryCast(bot, AVENGING_WRATH))
         return AVENGING_WRATH;
     if (ctx.targetHealthPct <= 20.0f && CanTryCast(bot, HAMMER_OF_WRATH))
         return HAMMER_OF_WRATH;
@@ -85,7 +85,7 @@ uint32 SelectDisciplineDps(Context const& ctx)
 
     if (!HasAuraUp(bot, INNER_FIRE) && CanTryCast(bot, INNER_FIRE))
         return INNER_FIRE;
-    if (CanTryCast(bot, POWER_INFUSION))
+    if (WantsCooldowns(ctx) && CanTryCast(bot, POWER_INFUSION))
         return POWER_INFUSION;
 
     if (ctx.enemies >= 3)
@@ -212,15 +212,13 @@ uint32 SelectMistweaverDps(Context const& ctx)
         SPINNING_CRANE_KICK = 101546,
         FISTS_OF_FURY       = 113656,
         TOUCH_OF_DEATH      = 115080,
-        TIGERSEYE_BREW      = 116740,
+        DEATH_NOTE          = 121125,
     };
 
     uint32 const chi = bot->GetPower(POWER_CHI);
 
-    if (ctx.targetHealthPct <= 10.0f && CanTryCast(bot, TOUCH_OF_DEATH))
+    if (HasAuraUp(bot, DEATH_NOTE) && CanTryCast(bot, TOUCH_OF_DEATH))
         return TOUCH_OF_DEATH;
-    if (chi >= 10 && CanTryCast(bot, TIGERSEYE_BREW))
-        return TIGERSEYE_BREW;
 
     if (ctx.enemies >= 3 && CanTryCast(bot, SPINNING_CRANE_KICK))
         return SPINNING_CRANE_KICK;

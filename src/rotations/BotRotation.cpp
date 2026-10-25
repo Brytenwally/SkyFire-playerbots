@@ -4,6 +4,7 @@
 
 #include "BotRotation.h"
 #include "BotRotationLists.h"
+#include "Creature.h"
 
 #include "DBCStores.h"
 #include "Group.h"
@@ -77,6 +78,7 @@ namespace
             case 31801:  // Seal of Truth
             case 20154:  // Seal of Righteousness
             case 15473:  // Shadowform
+            case 15286:  // Vampiric Embrace
             case 21562:  // Power Word: Fortitude
             case 588:    // Inner Fire
             case 324:    // Lightning Shield
@@ -89,6 +91,7 @@ namespace
             case 82692:  // Focus Fire
             case 19574:  // Bestial Wrath
             case 3045:   // Rapid Fire
+            case 82726:  // Fervor
             case 121818: // Stampede
             case 883:    // Call Pet
             case 136:    // Mend Pet
@@ -127,6 +130,10 @@ namespace
             case 49016:  // Unholy Frenzy
             case 63560:  // Dark Transformation
             case 51533:  // Feral Spirit
+            case 2894:   // Fire Elemental Totem
+            case 3599:   // Searing Totem
+            case 8190:   // Magma Totem
+            case 1535:   // Fire Nova
             case 1126:   // Mark of the Wild
             case 108683: // Fire and Brimstone
             case 18499:  // Berserker Rage
@@ -146,9 +153,20 @@ namespace
             case 5487:   // Bear Form
             case 71:     // Defensive Stance
             case 48263:  // Blood Presence
+            case 48265:  // Unholy Presence
+            case 48266:  // Frost Presence
+            case 51271:  // Pillar of Frost
+            case 45529:  // Blood Tap
+            case 47568:  // Empower Rune Weapon
+            case 48982:  // Rune Tap
+            case 115989: // Unholy Blight
             case 20165:  // Seal of Insight
             case 20164:  // Seal of Justice
             case 6117:   // Mage Armor
+            case 7302:   // Frost Armor
+            case 55342:  // Mirror Image
+            case 12042:  // Arcane Power
+            case 12051:  // Evocation
             case 30482:  // Molten Armor
             case 1459:   // Arcane Brilliance
             case 51713:  // Shadow Dance
@@ -164,11 +182,20 @@ namespace
             case 2565:   // Shield Block
             case 1160:   // Demoralizing Shout
             case 62606:  // Savage Defense
+            case 22842:  // Frenzied Regeneration
+            case 5229:   // Enrage (bear)
+            case 50334:  // Berserk (bear)
+            case 112071: // Celestial Alignment
+            case 124974: // Nature's Vigil
+            case 48505:  // Starfall
             case 132404: // Shield Block (MoP buff)
             case 54428:  // Divine Plea
             case 31884:  // Avenging Wrath
             case 31842:  // Divine Favor
             case 105809: // Holy Avenger
+            case 86698:  // Guardian of Ancient Kings (Retribution)
+            case 86659:  // Guardian of Ancient Kings (Protection)
+            case 31850:  // Ardent Defender
             case 20572:  // Blood Fury (AP)
             case 33702:  // Blood Fury (SP)
             case 33697:  // Blood Fury (both)
@@ -197,6 +224,21 @@ namespace
                 return true;
             default:
                 return false;
+        }
+    }
+
+    // Ally-targeted heals a DPS/tank rotation casts on itself. Kept out of
+    // IsSelfCast so healer specs can still put them on party members.
+    bool IsSelfCastInRotation(uint32 spellId)
+    {
+        switch (spellId)
+        {
+            case 20925:  // Sacred Shield
+            case 114163: // Eternal Flame
+            case 85673:  // Word of Glory
+                return true;
+            default:
+                return IsSelfCast(spellId);
         }
     }
 
@@ -247,6 +289,18 @@ uint32 CountNearbyEnemies(Player* bot, float range)
         if (u && u->IsAlive() && bot->IsValidAttackTarget(u))
             ++count;
     return count ? count : 1;
+}
+
+bool WantsCooldowns(Context const& ctx)
+{
+    if (!ctx.bot || !ctx.target || !StrategyOn(ctx.bot, "boost"))
+        return false;
+    if (ctx.target->GetTypeId() == TypeID::TYPEID_PLAYER)
+        return true;
+    if (Creature const* creature = ctx.target->ToCreature())
+        if (creature->isWorldBoss() || creature->IsDungeonBoss() || creature->isElite())
+            return true;
+    return CountNearbyEnemies(ctx.bot, 10.0f) >= 3;
 }
 
 Unit* FindSecondaryEnemy(Player* bot, Unit* exclude, float range)
@@ -426,9 +480,46 @@ bool SpellReady(Player* bot, uint32 spellId)
 }
 
 // True when the bot can afford the SpellPower.dbc cost for this spell.
+bool HasRunesFor(Player* bot, uint32 spellId)
+{
+    if (bot->getClass() != CLASS_DEATH_KNIGHT)
+        return true;
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+    if (!info || !info->RuneCostID)
+        return true;
+    SpellRuneCostEntry const* src = sSpellRuneCostStore.LookupEntry(info->RuneCostID);
+    if (!src || src->NoRuneCost())
+        return true;
+
+    int32 runeCost[uint8(RuneType::NUM_RUNE_TYPES)];
+    for (uint8 i = 0; i < uint8(RuneType::NUM_RUNE_TYPES); ++i)
+        runeCost[i] = src->RuneCost[i];
+    runeCost[uint8(RuneType::RUNE_DEATH)] = 0;
+
+    uint32 readyDeath = 0;
+    for (uint8 i = 0; i < MAX_RUNES; ++i)
+    {
+        if (bot->GetRuneCooldown(i) != 0)
+            continue;
+        uint8 const rune = uint8(bot->GetCurrentRune(i));
+        if (rune == uint8(RuneType::RUNE_DEATH))
+            ++readyDeath;
+        else if (runeCost[rune] > 0)
+            --runeCost[rune];
+    }
+
+    uint32 missing = 0;
+    for (uint8 i = 0; i < uint8(RuneType::RUNE_DEATH); ++i)
+        if (runeCost[i] > 0)
+            missing += uint32(runeCost[i]);
+    return missing <= readyDeath;
+}
+
 bool CanAffordSpell(Player* bot, uint32 spellId)
 {
     if (!bot || !spellId)
+        return false;
+    if (!HasRunesFor(bot, spellId))
         return false;
 
     for (uint32 i = 0; i < sSpellPowerStore.GetNumRows(); ++i)
@@ -554,7 +645,7 @@ bool CastSpell(Player* bot, Unit* enemy, uint32 spellId)
     // Only force self for known self-buffs / ground AoE. Do NOT use
     // !NeedsExplicitUnitTarget() — that redirected many damage spells onto the
     // caster and made every cast fail (no abilities on recount).
-    Unit* castTarget = IsSelfCast(spellId) ? static_cast<Unit*>(bot) : enemy;
+    Unit* castTarget = IsSelfCastInRotation(spellId) ? static_cast<Unit*>(bot) : enemy;
     if (!castTarget)
         return false;
 
