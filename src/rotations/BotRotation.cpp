@@ -683,8 +683,19 @@ bool CastSpell(Player* bot, Unit* enemy, uint32 spellId)
     bool const hadGcd = info->StartRecoveryTime > 0 && bot->GetGlobalCooldownMgr().HasGlobalCooldown(info);
     uint32 const focusBefore = bot->GetPower(POWER_FOCUS);
 
+    // Imbues cast without an item target land on the main hand; send Flametongue to an
+    // unimbued off-hand once the main hand already carries its imbue.
+    Item* offhand = spellId == 8024 ? bot->GetWeaponForAttack(WeaponAttackType::OFF_ATTACK) : nullptr;
+    Item* mainhand = offhand ? bot->GetWeaponForAttack(WeaponAttackType::BASE_ATTACK) : nullptr;
+    if (offhand && mainhand && mainhand->GetEnchantmentId(TEMP_ENCHANTMENT_SLOT)
+        && !offhand->GetEnchantmentId(TEMP_ENCHANTMENT_SLOT))
+    {
+        SpellCastTargets targets;
+        targets.SetItemTarget(offhand);
+        bot->CastSpell(targets, info, nullptr);
+    }
     // Ground-targeted spells without a destination land on the caster, so aim them at the enemy.
-    if (castTarget != bot && (info->GetExplicitTargetMask() & TARGET_FLAG_DEST_LOCATION))
+    else if (castTarget != bot && (info->GetExplicitTargetMask() & TARGET_FLAG_DEST_LOCATION))
         bot->CastSpell(castTarget->GetPositionX(), castTarget->GetPositionY(), castTarget->GetPositionZ(),
             spellId, false);
     else

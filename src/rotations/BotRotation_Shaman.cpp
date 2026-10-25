@@ -154,10 +154,17 @@ uint32 SelectEnhancement(Context const& ctx)
 
     uint32 const mw = AuraStacks(bot, MAELSTROM_WEAPON);
 
-    // Buffs: Windfury (main hand), Flametongue (off-hand), Lightning Shield
-    if (!HasMainhandWeaponImbue(bot) && CanTryCast(bot, WINDFURY_WEAPON))
-        return WINDFURY_WEAPON;
-    if (!HasOffhandWeaponImbue(bot) && CanTryCast(bot, FLAMETONGUE_WEAPON))
+    // Buffs: Windfury (main hand), Flametongue (off-hand), Lightning Shield.
+    // The off-hand imbue only goes out once the main hand has one (see CastSpell).
+    if (!HasMainhandWeaponImbue(bot))
+    {
+        if (CanTryCast(bot, WINDFURY_WEAPON))
+            return WINDFURY_WEAPON;
+        if (CanTryCast(bot, FLAMETONGUE_WEAPON))
+            return FLAMETONGUE_WEAPON;
+    }
+    else if (bot->GetWeaponForAttack(WeaponAttackType::OFF_ATTACK) && !HasOffhandWeaponImbue(bot)
+        && CanTryCast(bot, FLAMETONGUE_WEAPON))
         return FLAMETONGUE_WEAPON;
     if (!HasAuraUp(bot, LIGHTNING_SHIELD) && CanTryCast(bot, LIGHTNING_SHIELD))
         return LIGHTNING_SHIELD;
