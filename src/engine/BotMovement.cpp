@@ -15,6 +15,9 @@
 #include "PathGenerator.h"
 #include "Player.h"
 #include "SpellAuraDefines.h"
+#include "SpellAuraEffects.h"
+#include "SpellInfo.h"
+#include "SpellMgr.h"
 #include "Unit.h"
 
 #include <algorithm>
@@ -195,11 +198,161 @@ bool IsCasting(Player* bot)
         return false;
     }
 
+    float PulsedDamageRadius(Unit* unit, uint32* spellId)
+    {
+        float radius = 0.0f;
+        if (!unit)
+            return radius;
+
+        Unit::AuraEffectList const* lists[2] =
+        {
+            &unit->GetAuraEffectsByType(SPELL_AURA_PERIODIC_TRIGGER_SPELL),
+            &unit->GetAuraEffectsByType(SPELL_AURA_PERIODIC_TRIGGER_SPELL_WITH_VALUE)
+        };
+        for (Unit::AuraEffectList const* list : lists)
+        {
+            for (AuraEffect const* aurEff : *list)
+            {
+                if (!aurEff)
+                    continue;
+                SpellInfo const* info = aurEff->GetSpellInfo();
+                if (!info)
+                    continue;
+                // Not IsPositive(): entry-targeted damage (TARGET_UNIT_DEST_AREA_ENTRY) is classed as positive.
+                // A hostile creature pulsing school damage is enough.
+                SpellInfo const* trigger = sSpellMgr->GetSpellInfo(info->Effects[aurEff->GetEffIndex()].TriggerSpell);
+                if (!trigger)
+                    continue;
+                for (uint8 j = 0; j < MAX_SPELL_EFFECTS; ++j)
+                {
+                    if (trigger->Effects[j].Effect != SPELL_EFFECT_SCHOOL_DAMAGE)
+                        continue;
+                    float const r = trigger->Effects[j].CalcRadius(unit);
+                    if (r > radius)
+                    {
+                        radius = r;
+                        if (spellId)
+                            *spellId = trigger->Id;
+                    }
+                }
+            }
+        }
+        return radius;
+    }
+
+    void CollectSweepHazards(Player* bot, float range, std::vector<SweepHazard>& hazards)
+    {
+        hazards.clear();
+        if (!bot || !bot->IsInWorld())
+            return;
+
+        std::list<Unit*> units;
+        Skyfire::AnyUnitInObjectRangeCheck check(bot, range);
+        Skyfire::UnitListSearcher<Skyfire::AnyUnitInObjectRangeCheck> searcher(bot, units, check);
+        bot->VisitNearbyObject(range, searcher);
+
+        for (Unit* unit : units)
+        {
+            if (!unit || unit->GetTypeId() == TypeID::TYPEID_PLAYER || !unit->IsAlive())
+                continue;
+            if (!unit->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE) || bot->IsFriendlyTo(unit))
+                continue;
+            Movement::MoveSpline const* spline = unit->movespline.get();
+            if (!spline || !spline->Initialized() || spline->Finalized() || spline->onTransport)
+                continue;
+
+            uint32 spellId = 0;
+            float const radius = PulsedDamageRadius(unit, &spellId);
+            if (radius < 0.5f || radius > 15.0f)
+                continue;
+
+            // The unit's own position only follows its spline every few hundred ms, yards behind on a fast sweep
+            Movement::Location const loc = spline->ComputePosition();
+            if (std::fabs(bot->GetPositionZ() - loc.z) > 8.0f)
+                continue;
+
+            float speed = 0.0f;
+            Movement::MoveSpline::MySpline const& path = spline->_Spline();
+            int32 const idx = spline->_currentSplineIdx();
+            if (idx >= path.first() && idx < path.last())
+            {
+                int32 const segmentMs = path.length(idx + 1) - path.length(idx);
+                if (segmentMs > 0)
+                    speed = (path.getPoint(idx + 1) - path.getPoint(idx)).length() * 1000.0f / float(segmentMs);
+            }
+            if (speed < 0.1f)
+                continue;
+
+            hazards.push_back({ loc.x, loc.y, loc.z, radius, std::cos(loc.orientation), std::sin(loc.orientation), speed, spellId });
+        }
+    }
+
+    float SweepExposure(Player* bot, std::vector<SweepHazard> const& hazards, float x, float y, float holdTime,
+        float* minClear)
+    {
+        float constexpr kStep = 0.1f;
+        float constexpr kMargin = 0.5f;
+        // Straight-line extrapolation drifts off a turning sweep; don't trust it further out
+        float constexpr kMaxHorizon = 3.0f;
+
+        float const startX = bot->GetPositionX();
+        float const startY = bot->GetPositionY();
+        float const runSpeed = std::max(bot->GetSpeed(MOVE_RUN), 1.0f);
+        float const moveTime = std::sqrt((x - startX) * (x - startX) + (y - startY) * (y - startY)) / runSpeed;
+        float const horizon = std::min(moveTime + holdTime, kMaxHorizon);
+
+        float exposure = 0.0f;
+        float clear = 100.0f;
+        for (float t = 0.0f; t <= horizon; t += kStep)
+        {
+            float const f = moveTime > 0.0f ? std::min(t / moveTime, 1.0f) : 1.0f;
+            float const px = startX + (x - startX) * f;
+            float const py = startY + (y - startY) * f;
+            bool hit = false;
+            for (SweepHazard const& h : hazards)
+            {
+                float const hx = h.x + h.dirX * h.speed * t;
+                float const hy = h.y + h.dirY * h.speed * t;
+                float const gap = std::sqrt((px - hx) * (px - hx) + (py - hy) * (py - hy)) - h.radius;
+                clear = std::min(clear, gap);
+                if (gap < kMargin)
+                    hit = true;
+            }
+            if (hit)
+                exposure += kStep;
+        }
+        if (minClear)
+            *minClear = clear;
+        return exposure;
+    }
+
+    bool PathCrossesSweep(Player* bot, float x, float y)
+    {
+        if (!bot || !bot->IsInWorld() || !bot->IsInCombat())
+            return false;
+
+        std::vector<SweepHazard> hazards;
+        CollectSweepHazards(bot, 40.0f, hazards);
+        if (hazards.empty())
+            return false;
+
+        float constexpr kHold = 1.0f;
+        float const go = SweepExposure(bot, hazards, x, y, kHold);
+        if (go <= 0.0f)
+            return false;
+        float const runSpeed = std::max(bot->GetSpeed(MOVE_RUN), 1.0f);
+        float const moveTime = bot->GetExactDist2d(x, y) / runSpeed;
+        float const stay = SweepExposure(bot, hazards, bot->GetPositionX(), bot->GetPositionY(), moveTime + kHold);
+        return go > stay;
+    }
+
     bool MoveFollowLeader(Player* bot, Unit* leader, float distance, float angle)
     {
         if (!CanMove(bot) || !leader)
             return false;
         if (PathCrossesClosedDoor(bot, leader->GetPositionX(), leader->GetPositionY(), leader->GetPositionZ()))
+            return false;
+        if (PathCrossesSweep(bot, leader->GetPositionX(), leader->GetPositionY()))
             return false;
         EnsureRunning(bot);
         bot->GetMotionMaster()->Clear();
@@ -213,17 +366,21 @@ bool IsCasting(Player* bot)
             return false;
         if (PathCrossesClosedDoor(bot, target->GetPositionX(), target->GetPositionY(), target->GetPositionZ()))
             return false;
+        if (PathCrossesSweep(bot, target->GetPositionX(), target->GetPositionY()))
+            return false;
         EnsureRunning(bot);
         bot->GetMotionMaster()->Clear();
         bot->GetMotionMaster()->MoveChase(target, distance);
         return true;
     }
 
-    bool MovePoint(Player* bot, float x, float y, float z, bool generatePath)
+    bool MovePoint(Player* bot, float x, float y, float z, bool generatePath, bool checkSweep)
     {
         if (!CanMove(bot))
             return false;
         if (generatePath && PathCrossesClosedDoor(bot, x, y, z))
+            return false;
+        if (checkSweep && PathCrossesSweep(bot, x, y))
             return false;
         EnsureRunning(bot);
         bot->GetMotionMaster()->Clear();
@@ -254,6 +411,8 @@ bool IsCasting(Player* bot)
         float destZ = end.z;
         bot->UpdateAllowedPositionZ(destX, destY, destZ);
         if (PathCrossesClosedDoor(bot, destX, destY, destZ))
+            return false;
+        if (PathCrossesSweep(bot, destX, destY))
             return false;
 
         bot->GetMotionMaster()->Clear();

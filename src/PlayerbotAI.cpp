@@ -33,6 +33,7 @@
 #include "LootMgr.h"
 #include "Map.h"
 #include "MotionMaster.h"
+#include "MoveSpline.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Opcodes.h"
@@ -3546,45 +3547,28 @@ bool PlayerbotAI::TryAvoidAoe()
     Skyfire::WorldObjectListSearcher<Skyfire::AllWorldObjectsInRange> searcher(_bot, objects, check);
     _bot->VisitNearbyObject(scanRange, searcher);
 
-    // A moving hazard (e.g. a rotating fire wall) also covers the strip it sweeps through next.
-    float constexpr kMovingHazardLead = 3.0f;
-    float constexpr kMovingHazardMargin = 0.5f;
-
     struct Hazard
     {
         float x, y, z;
         float radius;
         float dist;
         uint32 spellId;
-        float dirX, dirY;
-        float lead;
     };
-    Hazard best{ 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    Hazard best{ 0, 0, 0, 0, 0, 0 };
     bool found = false;
 
-    // Distance from (px, py) to the segment the hazard covers: its position plus `lead` yards ahead along (dirX, dirY).
-    auto hazardDist = [](Hazard const& h, float px, float py)
-    {
-        float along = (px - h.x) * h.dirX + (py - h.y) * h.dirY;
-        along = std::max(0.0f, std::min(along, h.lead));
-        float const dx = px - (h.x + h.dirX * along);
-        float const dy = py - (h.y + h.dirY * along);
-        return std::sqrt(dx * dx + dy * dy);
-    };
-
-    auto consider = [&](float x, float y, float z, float radius, uint32 spellId, float dirX = 0.0f, float dirY = 0.0f, float lead = 0.0f)
+    auto consider = [&](float x, float y, float z, float radius, uint32 spellId)
     {
         if (radius < 0.5f || radius > kMaxRadius)
             return;
         if (std::fabs(_bot->GetPositionZ() - z) > 8.0f)
             return;
-        Hazard hazard{ x, y, z, radius, 0.0f, spellId, dirX, dirY, lead };
-        hazard.dist = hazardDist(hazard, _bot->GetPositionX(), _bot->GetPositionY());
-        if (hazard.dist > radius + (lead > 0.0f ? kMovingHazardMargin : 0.0f))
+        float const dist = _bot->GetExactDist2d(x, y);
+        if (dist > radius)
             return;
-        if (!found || hazard.dist < best.dist)
+        if (!found || dist < best.dist)
         {
-            best = hazard;
+            best = { x, y, z, radius, dist, spellId };
             found = true;
         }
     };
@@ -3671,64 +3655,49 @@ bool PlayerbotAI::TryAvoidAoe()
             continue;
         }
 
-        // Unselectable creature pulsing school damage (rotating walls, fissures).
+        // Unselectable creature pulsing school damage (fissures, void zones). Moving ones are sweeps, handled below.
         if (obj->GetTypeId() != TypeID::TYPEID_UNIT)
             continue;
 
         Unit* unit = obj->ToUnit();
-        if (!unit || !unit->IsAlive() || unit->GetTypeId() == TypeID::TYPEID_PLAYER)
+        if (!unit || !unit->IsAlive() || unit->GetTypeId() == TypeID::TYPEID_PLAYER || unit->isMoving())
             continue;
         if (!unit->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE))
             continue;
         if (_bot->IsFriendlyTo(unit))
             continue;
-        if (!_bot->IsWithinDist(unit, kMaxRadius + kMovingHazardLead, false))
+        if (!_bot->IsWithinDist(unit, kMaxRadius, false))
             continue;
 
         uint32 spellId = 0;
-        float radius = 0.0f;
-        Unit::AuraEffectList const* lists[2] =
-        {
-            &unit->GetAuraEffectsByType(SPELL_AURA_PERIODIC_TRIGGER_SPELL),
-            &unit->GetAuraEffectsByType(SPELL_AURA_PERIODIC_TRIGGER_SPELL_WITH_VALUE)
-        };
-        for (Unit::AuraEffectList const* list : lists)
-        {
-            for (AuraEffect const* aurEff : *list)
-            {
-                if (!aurEff)
-                    continue;
-                SpellInfo const* info = aurEff->GetSpellInfo();
-                if (!info)
-                    continue;
-                // Not IsPositive(): entry-targeted damage (TARGET_UNIT_DEST_AREA_ENTRY) is classed as positive.
-                // A hostile creature pulsing school damage is enough.
-                SpellInfo const* trigger = sSpellMgr->GetSpellInfo(info->Effects[aurEff->GetEffIndex()].TriggerSpell);
-                if (!trigger)
-                    continue;
-                for (uint8 j = 0; j < MAX_SPELL_EFFECTS; ++j)
-                {
-                    if (trigger->Effects[j].Effect != SPELL_EFFECT_SCHOOL_DAMAGE)
-                        continue;
-                    float const r = trigger->Effects[j].CalcRadius(unit);
-                    if (r > radius)
-                    {
-                        radius = r;
-                        spellId = trigger->Id;
-                    }
-                }
-            }
-        }
-        // Spline-moving creatures face their direction of travel
-        if (unit->isMoving())
-            consider(unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ(), radius, spellId,
-                std::cos(unit->GetOrientation()), std::sin(unit->GetOrientation()), kMovingHazardLead);
-        else
-            consider(unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ(), radius, spellId);
+        float const radius = BotMovement::PulsedDamageRadius(unit, &spellId);
+        consider(unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ(), radius, spellId);
     }
 
-    if (!found)
+    // Sweeping hazards (rotating fire walls) are a line of fires that outrun a bot at the far end: judge every
+    // spot against all of them over the next seconds instead of against where the closest one is now.
+    float constexpr kSweepHold = 1.5f;
+    std::vector<BotMovement::SweepHazard> sweeps;
+    BotMovement::CollectSweepHazards(_bot, scanRange, sweeps);
+    float const stayExposure = sweeps.empty() ? 0.0f
+        : BotMovement::SweepExposure(_bot, sweeps, _bot->GetPositionX(), _bot->GetPositionY(), kSweepHold);
+    bool const moving = stayExposure > 0.0f;
+
+    if (!found && !moving)
+    {
+        // Safe where we stand, but the current path may walk into a sweep: wait for it to pass
+        if (!sweeps.empty() && _bot->movespline && !_bot->movespline->Finalized()
+            && (!_lastAvoidMs || getMSTimeDiff(_lastAvoidMs, getMSTime()) > 1000))
+        {
+            G3D::Vector3 const dest = _bot->movespline->FinalDestination();
+            if (BotMovement::PathCrossesSweep(_bot, dest.x, dest.y))
+            {
+                BotMovement::StopAndIdle(_bot);
+                _chaseGuid = 0;
+            }
+        }
         return false;
+    }
 
     Unit* target = _bot->GetVictim();
     if (!target || !target->IsAlive() || !_bot->IsValidAttackTarget(target))
@@ -3737,8 +3706,6 @@ bool PlayerbotAI::TryAvoidAoe()
         target = nullptr;
 
     bool const melee = !IsRangedClass() && GetCombatRole() != CombatRole::Healer;
-    bool const moving = best.lead > 0.0f;
-    float const fleeDis = best.radius + 1.0f + best.lead;
 
     struct AngleTry
     {
@@ -3748,18 +3715,32 @@ bool PlayerbotAI::TryAvoidAoe()
         bool orbit;
     };
     std::vector<AngleTry> tries;
+    float fleeDis = best.radius + 1.0f;
     if (moving)
     {
-        // Sidestepping only lands back in the sweep: stay ahead of it, or stay behind if it already passed
-        float const along = (_bot->GetPositionX() - best.x) * best.dirX + (_bot->GetPositionY() - best.y) * best.dirY;
+        BotMovement::SweepHazard const* nearest = nullptr;
+        float nearestDist = 0.0f;
+        for (BotMovement::SweepHazard const& h : sweeps)
+        {
+            float const d = _bot->GetExactDist2d(h.x, h.y);
+            if (!nearest || d < nearestDist)
+            {
+                nearest = &h;
+                nearestDist = d;
+            }
+        }
 
-        // Close to an untanked boss the sweep is usually turning around it: strafe around the boss ahead of it
-        // at the same range and keep attacking, instead of running off.
+        // Ahead of the sweep or already behind it
+        float const along = (_bot->GetPositionX() - nearest->x) * nearest->dirX + (_bot->GetPositionY() - nearest->y) * nearest->dirY;
+        float const sweepAngle = std::atan2(nearest->dirY, nearest->dirX);
+
+        // Close to an untanked boss the sweep is usually turning around it, slowly that close in: strafe around
+        // the boss ahead of it at the same range and keep attacking, instead of running off.
         if (target && IsUntankedBoss(target) && _bot->GetExactDist2d(target) <= 12.0f)
         {
-            float const relX = best.x - target->GetPositionX();
-            float const relY = best.y - target->GetPositionY();
-            float turn = (relX * best.dirY - relY * best.dirX) >= 0.0f ? 1.0f : -1.0f;
+            float const relX = nearest->x - target->GetPositionX();
+            float const relY = nearest->y - target->GetPositionY();
+            float turn = (relX * nearest->dirY - relY * nearest->dirX) >= 0.0f ? 1.0f : -1.0f;
             if (along < 0.0f)
                 turn = -turn;
 
@@ -3767,7 +3748,7 @@ bool PlayerbotAI::TryAvoidAoe()
             float const maxRange = melee ? 4.0f : 9.0f;
             float const range = std::max(minRange, std::min(_bot->GetExactDist2d(target), maxRange));
             float const botAngle = target->GetAngle(_bot);
-            for (float step : { 75.0f, 100.0f, 50.0f })
+            for (float step : { 75.0f, 100.0f, 50.0f, 130.0f })
             {
                 float const a = botAngle + turn * step * float(M_PI) / 180.0f;
                 float const px = target->GetPositionX() + range * std::cos(a);
@@ -3776,25 +3757,32 @@ bool PlayerbotAI::TryAvoidAoe()
             }
         }
 
-        float const travel = std::atan2(best.dirY, best.dirX) + (along < 0.0f ? float(M_PI) : 0.0f);
-        tries.push_back({ travel, false, fleeDis, false });
-        tries.push_back({ travel + float(M_PI) / 4.0f, false, fleeDis, false });
-        tries.push_back({ travel - float(M_PI) / 4.0f, false, fleeDis, false });
+        // Outrun it, or let it pass by stepping back out of its lane
+        float const aheadDis = nearest->radius + 2.0f + nearest->speed * kSweepHold;
+        float const behindDis = nearest->radius * 2.0f + 2.0f;
+        float const forward = along < 0.0f ? sweepAngle + float(M_PI) : sweepAngle;
+        for (float offset : { 0.0f, float(M_PI) / 4.0f, -float(M_PI) / 4.0f, float(M_PI) / 2.0f, -float(M_PI) / 2.0f })
+        {
+            tries.push_back({ forward + offset, false, along < 0.0f ? behindDis : aheadDis, false });
+            tries.push_back({ forward + float(M_PI) + offset, false, along < 0.0f ? aheadDis : behindDis, false });
+        }
     }
-    else if (target)
+    else
     {
-        float const angle = _bot->GetAngle(target);
-        bool const tanking = target->GetVictim() == _bot;
-        tries.push_back({ angle + float(M_PI) / 2.0f, false, fleeDis, false });
-        tries.push_back({ angle - float(M_PI) / 2.0f, false, fleeDis, false });
-        tries.push_back({ angle, true, fleeDis, false });
-        if (tanking)
-            tries.push_back({ angle + float(M_PI), false, fleeDis, false });
-        else if (!melee)
-            tries.push_back({ angle + float(M_PI), true, fleeDis, false });
-    }
-    if (!moving)
+        if (target)
+        {
+            float const angle = _bot->GetAngle(target);
+            bool const tanking = target->GetVictim() == _bot;
+            tries.push_back({ angle + float(M_PI) / 2.0f, false, fleeDis, false });
+            tries.push_back({ angle - float(M_PI) / 2.0f, false, fleeDis, false });
+            tries.push_back({ angle, true, fleeDis, false });
+            if (tanking)
+                tries.push_back({ angle + float(M_PI), false, fleeDis, false });
+            else if (!melee)
+                tries.push_back({ angle + float(M_PI), true, fleeDis, false });
+        }
         tries.push_back({ _bot->GetAngle(best.x, best.y) + float(M_PI), false, fleeDis, false });
+    }
 
     auto reversedRecently = [&](float angle)
     {
@@ -3808,7 +3796,10 @@ bool PlayerbotAI::TryAvoidAoe()
         return diff < float(M_PI) / 4.0f;
     };
 
+    // Static hazards: further from the hazard is better. Sweeps: less time in reach, then more room.
     float bestScore = best.dist;
+    float bestExposure = stayExposure;
+    bool bestOrbit = false;
     bool have = false;
     float destX = 0.0f, destY = 0.0f, destZ = 0.0f, destAngle = 0.0f;
 
@@ -3817,7 +3808,7 @@ bool PlayerbotAI::TryAvoidAoe()
         for (AngleTry const& tryAngle : tries)
         {
             float const angle = Position::NormalizeOrientation(tryAngle.angle);
-            if (!allowReverse && reversedRecently(angle))
+            if (!moving && !allowReverse && reversedRecently(angle))
                 continue;
 
             // Stop short of walls and game objects; a destination behind one makes the bot path around it
@@ -3860,25 +3851,40 @@ bool PlayerbotAI::TryAvoidAoe()
                     continue;
             }
 
-            float const score = hazardDist(best, x, y);
-            if (score <= (tryAngle.orbit ? best.radius : bestScore))
-                continue;
+            if (moving)
+            {
+                float clear = 0.0f;
+                float const exposure = BotMovement::SweepExposure(_bot, sweeps, x, y, kSweepHold, &clear);
+                if (exposure >= stayExposure)
+                    continue;
+                // Strafe spots keep the bot on the boss: take one whenever it is as safe as the best so far
+                bool better = !have || exposure < bestExposure - 0.05f;
+                if (!better && exposure <= bestExposure + 0.05f)
+                    better = tryAngle.orbit ? (!bestOrbit || clear > bestScore) : (!bestOrbit && clear > bestScore);
+                if (!better)
+                    continue;
+                bestExposure = exposure;
+                bestScore = clear;
+                bestOrbit = tryAngle.orbit;
+            }
+            else
+            {
+                float const score = std::sqrt((x - best.x) * (x - best.x) + (y - best.y) * (y - best.y));
+                if (score <= bestScore)
+                    continue;
+                bestScore = score;
+            }
 
-            bestScore = score;
             destX = x;
             destY = y;
             destZ = z;
             destAngle = angle;
             have = true;
-
-            // Strafe spots are listed best first and keep the bot on the boss
-            if (tryAngle.orbit)
-                return;
         }
     };
 
     attempt(false);
-    if (!have)
+    if (!have && !moving)
         attempt(true);
     if (!have)
         return false;
@@ -3886,15 +3892,16 @@ bool PlayerbotAI::TryAvoidAoe()
     if (IsBusyCasting(_bot))
         _bot->InterruptNonMeleeSpells(false);
 
-    if (!BotMovement::MovePoint(_bot, destX, destY, destZ))
+    if (!BotMovement::MovePoint(_bot, destX, destY, destZ, true, false))
         return false;
 
     _lastAvoidAngle = destAngle;
     _lastAvoidMs = getMSTime();
     _lastAvoidMoving = moving;
     _chaseGuid = 0;
-    if (best.spellId)
-        DebugCombat("Avoid " + std::to_string(best.spellId));
+    uint32 const spellId = moving ? sweeps.front().spellId : best.spellId;
+    if (spellId)
+        DebugCombat("Avoid " + std::to_string(spellId));
     else
         DebugCombat("Avoid hazard");
     return true;
@@ -5754,6 +5761,8 @@ bool PlayerbotAI::HandleAutoQuesting()
 void PlayerbotAI::MoveToPosition(float x, float y, float z)
 {
     if (BotMovement::PathCrossesClosedDoor(_bot, x, y, z))
+        return;
+    if (BotMovement::PathCrossesSweep(_bot, x, y))
         return;
     _bot->GetMotionMaster()->Clear();
     _bot->GetMotionMaster()->MovePoint(1, x, y, z, true);

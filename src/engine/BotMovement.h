@@ -8,11 +8,22 @@
 
 #include "Define.h"
 
+#include <vector>
+
 class Player;
 class Unit;
 
 namespace BotMovement
 {
+    // Hostile unselectable creature pulsing area damage while it moves along a spline (rotating fire walls).
+    struct SweepHazard
+    {
+        float x, y, z;
+        float radius;
+        float dirX, dirY;
+        float speed;
+        uint32 spellId;
+    };
     bool IsCasting(Player* bot);
     bool CanMove(Player* bot);
 
@@ -46,13 +57,28 @@ namespace BotMovement
 
     // Walk to a point (ranged plant / loot). No-ops while casting.
     // generatePath=false for air moves so Z is not navmesh-clamped to ground.
-    bool MovePoint(Player* bot, float x, float y, float z, bool generatePath = true);
+    // checkSweep=false for moves already scored against sweeping hazards.
+    bool MovePoint(Player* bot, float x, float y, float z, bool generatePath = true, bool checkSweep = true);
 
     // Path-aware travel: clamp Z, reject NOPATH, MovePoint with generatePath.
     bool MoveTo(Player* bot, float x, float y, float z);
 
     // Doors are not part of the navmesh, so paths run straight through closed ones.
     bool PathCrossesClosedDoor(Player* bot, float x, float y, float z);
+
+    // Radius of the school damage a unit pulses through a periodic trigger aura, 0 if none.
+    float PulsedDamageRadius(Unit* unit, uint32* spellId = nullptr);
+
+    void CollectSweepHazards(Player* bot, float range, std::vector<SweepHazard>& hazards);
+
+    // Seconds spent within reach of a hazard while running straight to (x, y) and then holding there for holdTime.
+    // Hazards are extrapolated along their current direction. minClear gets the smallest gap to any hazard edge.
+    float SweepExposure(Player* bot, std::vector<SweepHazard> const& hazards, float x, float y, float holdTime,
+        float* minClear = nullptr);
+
+    // True when walking straight to (x, y) now gets the bot hit by a sweeping hazard where waiting would not.
+    // Only checked in combat.
+    bool PathCrossesSweep(Player* bot, float x, float y);
 
     // Face via orientation only (no MoveSpline / MOVEMENTFLAG_FORWARD).
     // Never while casting.
