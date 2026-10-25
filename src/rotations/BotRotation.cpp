@@ -155,6 +155,12 @@ namespace
             case 49222:  // Bone Shield
             case 115069: // Stance of the Sturdy Ox
             case 115295: // Guard
+            case 119582: // Purifying Brew
+            case 115308: // Elusive Brew
+            case 115399: // Chi Brew
+            case 115072: // Expel Harm
+            case 116847: // Rushing Jade Wind
+            case 101546: // Spinning Crane Kick
             case 2565:   // Shield Block
             case 1160:   // Demoralizing Shout
             case 62606:  // Savage Defense

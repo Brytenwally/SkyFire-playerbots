@@ -3245,6 +3245,8 @@ uint32 PlayerbotAI::GetPullOpenerSpell(Unit* target) const
                 return ff;
             break;
         case CLASS_MONK:
+            if (uint32 wave = pick(115098, 0.0f, 40.0f)) // Chi Wave
+                return wave;
             break;
         default:
             break;
@@ -3281,6 +3283,10 @@ float PlayerbotAI::GetPullOpenerRange(Unit* target) const
             break;
         case CLASS_DRUID:
             if (known(770))
+                return 30.0f;
+            break;
+        case CLASS_MONK:
+            if (known(115098)) // Chi Wave
                 return 30.0f;
             break;
         default:

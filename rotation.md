@@ -72,7 +72,9 @@ Brewmaster (Tank)
 
     Stance: Stance of the Sturdy Ox
 
-    Rotation: Keg Smash (on cooldown) > Blackout Kick (keep Shuffle buff active) > Tiger Palm (keep Tiger Power active) > Jab (build Chi) > Purifying Brew (dump Chi to clear Stagger damage)
+    Rotation: Fortifying Brew (below 55% health) > Purifying Brew (Heavy Stagger, or Moderate Stagger with Shuffle up) > Elusive Brew (10+ stacks, or 5+ below 70% health) > Blackout Kick (Shuffle about to drop) > Guard > Keg Smash (if it won't cap Chi) > Breath of Fire (3+ targets with Dizzying Haze, Shuffle 6s+) / Rushing Jade Wind (3+ targets) > Chi Wave > Blackout Kick (near Chi cap, or Shuffle under 6s) > Chi Brew (0-1 Chi) > Tiger Palm (keep Tiger Power active) > Spinning Crane Kick (4+ targets without Rushing Jade Wind) / Expel Harm (below 90% health) / Jab (build Chi, pooling energy for Keg Smash) > Tiger Palm (free filler)
+
+    Pull: Chi Wave if talented, otherwise Provoke
 
 Windwalker (DPS)
 
