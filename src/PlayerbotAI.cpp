@@ -35,6 +35,7 @@
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Opcodes.h"
+#include "PathGenerator.h"
 #include <unordered_set>
 #include "PetDefines.h"
 #include "Player.h"
@@ -3687,13 +3688,32 @@ bool PlayerbotAI::TryAvoidAoe()
             if (!allowReverse && reversedRecently(angle))
                 continue;
 
-            float x = _bot->GetPositionX() + std::cos(angle) * fleeDis;
-            float y = _bot->GetPositionY() + std::sin(angle) * fleeDis;
-            float z = _bot->GetPositionZ();
+            // Stop short of walls and game objects; a destination behind one makes the bot path around it
+            // (or not move at all) while it stands in the hazard
+            Position pos;
+            _bot->GetPosition(&pos);
+            _bot->MovePositionToFirstCollision(pos, fleeDis, angle - _bot->GetOrientation());
+            float x = pos.GetPositionX();
+            float y = pos.GetPositionY();
+            float z = pos.GetPositionZ();
             _bot->UpdateAllowedPositionZ(x, y, z);
             if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
                 continue;
             if (std::fabs(z - _bot->GetPositionZ()) > 6.0f)
+                continue;
+
+            float const straight = _bot->GetExactDist2d(x, y);
+            if (straight < 1.0f)
+                continue;
+
+            PathGenerator path(_bot);
+            if (!path.CalculatePath(x, y, z) || (path.GetPathType() & (PATHFIND_NOPATH | PATHFIND_INCOMPLETE)))
+                continue;
+            Movement::PointsArray const& points = path.GetPath();
+            float pathLength = 0.0f;
+            for (size_t i = 1; i < points.size(); ++i)
+                pathLength += (points[i] - points[i - 1]).length();
+            if (pathLength > straight * 1.5f + 1.0f)
                 continue;
 
             if (tryAngle.strict && target)
