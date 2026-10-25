@@ -1357,7 +1357,10 @@ bool PlayerbotAI::HandleCombat()
     // Ranged / caster: never chase to contact. Walk to a cast-range point on the
     // bot's side of the target, then plant and cast when in range with LoS.
     float const dist = _bot->GetDistance(target);
-    bool const inRange = dist <= BOT_CAST_DIST;
+    // A sweeping hazard (rotating fire wall) moves slowly near the boss it turns around, so a short sidestep
+    // there buys time to cast; at full range it outruns the bot and nobody casts at all.
+    float const castDist = (AvoidedMovingHazardRecently() && IsUntankedBoss(target)) ? 10.0f : BOT_CAST_DIST;
+    bool const inRange = dist <= castDist;
     bool const hasLos = _bot->IsWithinLOSInMap(target);
     // Treat Auto Shot / wand as background fire — still plant/face between GCDs.
     bool const casting = _bot->IsNonMeleeSpellCasted(false, false, true)
@@ -1396,7 +1399,7 @@ bool PlayerbotAI::HandleCombat()
 
     // Too close for casting: hunters always step out — ranged shots fail in melee.
     // Other casters only kite when a tank holds the mob in a dungeon.
-    if (!casting && (_bot->IsWithinMeleeRange(target) || dist < BOT_CAST_DIST * 0.40f))
+    if (!casting && (_bot->IsWithinMeleeRange(target) || dist < castDist * 0.40f))
     {
         if (IsHunterRanged() || WantsRangedKiting())
         {
@@ -1440,7 +1443,7 @@ bool PlayerbotAI::HandleCombat()
     // step toward the focus instead of reissuing the same stand-off point.
     {
         float destX, destY, destZ;
-        float const standDist = hasLos ? (BOT_CAST_DIST * 0.85f)
+        float const standDist = hasLos ? (castDist * 0.85f)
                                        : std::max(5.0f, dist * 0.55f);
         float const absAngle = target->GetAngle(_bot);
         target->GetNearPoint(_bot, destX, destY, destZ, _bot->GetObjectSize(), standDist, absAngle);
@@ -1609,6 +1612,14 @@ Unit* PlayerbotAI::SelectTarget()
             }
         return nullptr;
     }
+
+    // The tank holds the adds while everyone else brings the untanked boss down.
+    if (GetCombatRole() != CombatRole::Tank)
+        if (Unit* boss = SelectUntankedBoss())
+        {
+            _targets.SetCurrentTarget(boss);
+            return boss;
+        }
 
     // With dps assist, lock onto the tank's focus before peeling onto whatever
     // just hit us (fresh chain-pull / ranged add). Own attackers still win if
@@ -2844,6 +2855,47 @@ Unit* PlayerbotAI::SelectGroupThreatTarget()
     return best;
 }
 
+// A dungeon boss in a phase where it fights nobody (floating, channelling) has no tank target to assist,
+// so following the tank leaves damage dealers on its adds for the rest of the fight.
+bool PlayerbotAI::IsUntankedBoss(Unit const* unit) const
+{
+    Creature const* creature = unit ? unit->ToCreature() : nullptr;
+    if (!creature || !creature->IsAlive() || !creature->IsInCombat())
+        return false;
+    if (!creature->IsDungeonBoss() && !creature->isWorldBoss())
+        return false;
+    return !creature->GetVictim();
+}
+
+Unit* PlayerbotAI::SelectUntankedBoss()
+{
+    if (!_bot->IsInCombat())
+        return nullptr;
+    Map* map = _bot->GetMap();
+    if (!map || !map->IsDungeon())
+        return nullptr;
+
+    std::list<Unit*> nearby;
+    Skyfire::AnyUnfriendlyUnitInObjectRangeCheck check(_bot, _bot, 60.0f);
+    Skyfire::UnitListSearcher<Skyfire::AnyUnfriendlyUnitInObjectRangeCheck> searcher(_bot, nearby, check);
+    _bot->VisitNearbyObject(60.0f, searcher);
+    for (Unit* unit : nearby)
+    {
+        if (!IsUntankedBoss(unit) || !IsSafeAttackTarget(unit) || !_bot->IsValidAttackTarget(unit))
+            continue;
+        // On the threat list at all: threat resets (e.g. on a boss blink) leave everyone at 0
+        if (!unit->getThreatManager().getOnlineContainer().getReferenceByTarget(_bot))
+            continue;
+        return unit;
+    }
+    return nullptr;
+}
+
+bool PlayerbotAI::AvoidedMovingHazardRecently() const
+{
+    return _lastAvoidMoving && _lastAvoidMs && getMSTimeDiff(_lastAvoidMs, getMSTime()) < 15000;
+}
+
 Unit* PlayerbotAI::SelectAssistTankTarget()
 {
     Group* group = _bot->GetGroup();
@@ -3755,6 +3807,7 @@ bool PlayerbotAI::TryAvoidAoe()
 
     _lastAvoidAngle = destAngle;
     _lastAvoidMs = getMSTime();
+    _lastAvoidMoving = moving;
     _chaseGuid = 0;
     if (best.spellId)
         DebugCombat("Avoid " + std::to_string(best.spellId));

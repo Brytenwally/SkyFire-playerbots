@@ -244,6 +244,9 @@ private:
     Unit* SelectQuestObjectiveTarget();
     Unit* SelectTankTarget();
     Unit* SelectGroupThreatTarget();
+    Unit* SelectUntankedBoss();
+    bool IsUntankedBoss(Unit const* unit) const;
+    bool AvoidedMovingHazardRecently() const;
     Unit* SelectAssistTankTarget();
     Unit* SelectLowestHpGroupEnemy();
     Player* SelectHealTarget(float belowPct = 90.0f);
@@ -344,6 +347,7 @@ private:
     // Last avoid-aoe sidestep. The next dodge will not reverse straight back into the hazard.
     float _lastAvoidAngle = 0.0f;
     uint32 _lastAvoidMs = 0;
+    bool _lastAvoidMoving = false;
     time_t _pullStartTime = 0;
     enum class PullPhase : uint8 { None, Reach, Opener };
     PullPhase _pullPhase = PullPhase::None;
