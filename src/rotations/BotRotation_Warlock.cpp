@@ -21,6 +21,7 @@ namespace
         MALEFIC_GRASP       = 103103,
         DRAIN_SOUL          = 1120,
         SEED_OF_CORRUPTION  = 27243,
+        RAIN_OF_FIRE        = 5740,
         DARK_SOUL_MISERY    = 113860,
         SUMMON_DOOMGUARD    = 18540,
         LIFE_TAP            = 1454,
@@ -64,6 +65,9 @@ uint32 SelectAffliction(Context const& ctx)
         return CORRUPTION;
     if (NeedsMyAuraRefresh(bot, target, UNSTABLE_AFFLICTION, 4.0f) && CanTryCast(bot, UNSTABLE_AFFLICTION))
         return UNSTABLE_AFFLICTION;
+
+    if (ctx.enemies >= 4 && !HasGroundEffect(bot, RAIN_OF_FIRE) && CanTryCast(bot, RAIN_OF_FIRE))
+        return RAIN_OF_FIRE;
 
     // Drain Soul replaces Malefic Grasp in execute range and refunds shards.
     if (ctx.targetHealthPct <= 20.0f && shards < 4 && CanTryCast(bot, DRAIN_SOUL))

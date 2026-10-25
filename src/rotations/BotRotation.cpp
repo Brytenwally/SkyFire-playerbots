@@ -19,6 +19,7 @@
 #include "Spell.h"
 #include "SpellAuras.h"
 #include "SpellMgr.h"
+#include "SpellTargeting.h"
 #include "Unit.h"
 #include "Util.h"
 
@@ -301,6 +302,11 @@ bool WantsCooldowns(Context const& ctx)
         if (creature->isWorldBoss() || creature->IsDungeonBoss() || creature->isElite())
             return true;
     return CountNearbyEnemies(ctx.bot, 10.0f) >= 3;
+}
+
+bool HasGroundEffect(Player* bot, uint32 spellId)
+{
+    return bot && bot->GetDynObject(spellId) != nullptr;
 }
 
 Unit* FindSecondaryEnemy(Player* bot, Unit* exclude, float range)
@@ -677,7 +683,12 @@ bool CastSpell(Player* bot, Unit* enemy, uint32 spellId)
     bool const hadGcd = info->StartRecoveryTime > 0 && bot->GetGlobalCooldownMgr().HasGlobalCooldown(info);
     uint32 const focusBefore = bot->GetPower(POWER_FOCUS);
 
-    bot->CastSpell(castTarget, spellId, false);
+    // Ground-targeted spells without a destination land on the caster, so aim them at the enemy.
+    if (castTarget != bot && (info->GetExplicitTargetMask() & TARGET_FLAG_DEST_LOCATION))
+        bot->CastSpell(castTarget->GetPositionX(), castTarget->GetPositionY(), castTarget->GetPositionZ(),
+            spellId, false);
+    else
+        bot->CastSpell(castTarget, spellId, false);
 
     // Instants with a GCD stay in PREPARING until a 1ms spell event fires.
     // Hunter "instants" also get a 500ms ammo-delay cast time — finish those too.

@@ -80,6 +80,8 @@ namespace BotRotation
     // Major (multi-minute) cooldowns: +boost and a target worth it (boss, elite,
     // player) or a pack of 3+, so open-world trash doesn't eat them.
     bool WantsCooldowns(Context const& ctx);
+    // Our ground effect (Rain of Fire, Blizzard...) is still on the floor.
+    bool HasGroundEffect(Player* bot, uint32 spellId);
     // Nearest valid hostile other than `exclude` (for Havoc / multi-DoT).
     Unit* FindSecondaryEnemy(Player* bot, Unit* exclude, float range);
     // MoP often applies a different aura ID than the cast spell (e.g. Corruption

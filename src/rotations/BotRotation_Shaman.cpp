@@ -22,6 +22,7 @@ namespace
         EARTH_SHOCK          = 8042,
         LIGHTNING_BOLT       = 403,
         CHAIN_LIGHTNING      = 421,
+        EARTHQUAKE           = 61882,
         UNLEASH_ELEMENTS     = 73680,
         UNLEASH_FLAME        = 73683,
         SEARING_TOTEM        = 3599,
@@ -115,6 +116,9 @@ uint32 SelectElemental(Context const& ctx)
 
     if (!FireTotemActive(bot, target) && CanTryCast(bot, SEARING_TOTEM))
         return SEARING_TOTEM;
+
+    if (ctx.enemies >= 4 && CanTryCast(bot, EARTHQUAKE))
+        return EARTHQUAKE;
 
     if (ctx.enemies >= 3)
     {

@@ -54,6 +54,7 @@ namespace
         WRATH           = 5176,
         STARFIRE        = 2912,
         STARFALL        = 48505,
+        HURRICANE       = 16914,
         ECLIPSE_SOLAR   = 48517,
         ECLIPSE_LUNAR   = 48518,
         SOLAR_MARKER    = 67483,  // bar moving toward Solar: Starfire advances it
@@ -226,6 +227,9 @@ uint32 SelectBalance(Context const& ctx)
         return SUNFIRE;
     if (MyAuraRemains(bot, target, MOONFIRE) <= (lunar ? 3.0f : 2.0f) && CanTryCast(bot, MOONFIRE))
         return MOONFIRE;
+
+    if (ctx.enemies >= 4 && !HasGroundEffect(bot, HURRICANE) && CanTryCast(bot, HURRICANE))
+        return HURRICANE;
 
     if (CanTryCast(bot, STARSURGE))
         return STARSURGE;

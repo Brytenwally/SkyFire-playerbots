@@ -33,6 +33,7 @@ namespace
         HOLY_AVENGER            = 105809,
         EXECUTION_SENTENCE      = 114157,
         HOLY_PRISM              = 114165,
+        LIGHTS_HAMMER           = 114158,
         DIVINE_PURPOSE_PROC     = 90174,
 
         // Protection
@@ -87,6 +88,8 @@ uint32 SelectRetribution(Context const& ctx)
 
     if (inquisition && CanTryCast(bot, EXECUTION_SENTENCE))
         return EXECUTION_SENTENCE;
+    if (inquisition && CanTryCast(bot, LIGHTS_HAMMER))
+        return LIGHTS_HAMMER;
 
     // Never sit on 5 Holy Power or a free spender; Holy Avenger triples generation.
     if (hp >= 5 || divinePurpose || (hp >= 3 && HasAuraUp(bot, HOLY_AVENGER)))
@@ -202,6 +205,8 @@ uint32 SelectProtectionPaladin(Context const& ctx)
         return EXECUTION_SENTENCE;
     if (CanTryCast(bot, HOLY_PRISM))
         return HOLY_PRISM;
+    if (CanTryCast(bot, LIGHTS_HAMMER))
+        return LIGHTS_HAMMER;
 
     if (CanTryCast(bot, HOLY_WRATH))
         return HOLY_WRATH;

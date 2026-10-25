@@ -29,6 +29,7 @@ namespace
         SHADOWBURN        = 17877,
         HAVOC             = 80240,
         FIRE_AND_BRIMSTONE = 108683,
+        RAIN_OF_FIRE      = 5740,
         DARK_SOUL_INSTABILITY = 113858,
     };
 
@@ -82,6 +83,8 @@ uint32 SelectDestruction(Context const& ctx)
     bool const brimstone = HasAuraUp(bot, FIRE_AND_BRIMSTONE);
     if (((ctx.enemies >= 3 && embers >= 1) != brimstone) && CanTryCast(bot, FIRE_AND_BRIMSTONE))
         return FIRE_AND_BRIMSTONE;
+    if (ctx.enemies >= 3 && !HasGroundEffect(bot, RAIN_OF_FIRE) && CanTryCast(bot, RAIN_OF_FIRE))
+        return RAIN_OF_FIRE;
 
     if (NeedsMyAuraRefresh(bot, target, IMMOLATE, 4.5f) && CanTryCast(bot, IMMOLATE))
         return IMMOLATE;

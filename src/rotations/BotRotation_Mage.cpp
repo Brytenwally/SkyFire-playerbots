@@ -40,6 +40,7 @@ namespace
         COMBUSTION          = 11129,
         IGNITE              = 12654,
         DRAGONS_BREATH      = 31661,
+        FLAMESTRIKE         = 2120,
 
         // Frost
         FROZEN_ORB          = 84714,
@@ -51,6 +52,7 @@ namespace
         ICY_VEINS           = 12472,
         SUMMON_WATER_ELEMENTAL = 31687,
         CONE_OF_COLD        = 120,
+        BLIZZARD            = 10,
     };
 
     float ManaPct(Player* bot)
@@ -154,6 +156,8 @@ uint32 SelectFire(Context const& ctx)
     if (uint32 const bomb = SelectBomb(bot, target))
         return bomb;
 
+    if (ctx.enemies >= 3 && CanTryCast(bot, FLAMESTRIKE))
+        return FLAMESTRIKE;
     if (ctx.enemies >= 3 && bot->GetDistance(target) <= 10.0f && CanTryCast(bot, DRAGONS_BREATH))
         return DRAGONS_BREATH;
 
@@ -193,6 +197,9 @@ uint32 SelectFrostMage(Context const& ctx)
 
     if (CanTryCast(bot, FROZEN_ORB))
         return FROZEN_ORB;
+
+    if (ctx.enemies >= 3 && !HasGroundEffect(bot, BLIZZARD) && CanTryCast(bot, BLIZZARD))
+        return BLIZZARD;
 
     if (ctx.enemies >= 5 && bot->GetDistance(target) <= 8.0f)
     {
