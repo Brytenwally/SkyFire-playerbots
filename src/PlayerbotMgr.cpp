@@ -2553,7 +2553,7 @@ namespace
         GearWeapons(bot, role, specId, minQuality, maxQuality);
     }
 
-    // Rest is spell-based (Refreshment 128701) — no bag food/drink.
+    // Rest is spell-based (level-based food/drink auras) — no bag food/drink.
     void GiveRestConsumables(Player* /*bot*/)
     {
     }

@@ -86,8 +86,69 @@ namespace
 
     // Conjured Mana Pudding wrapper (item cast). Actual seated regen auras:
     constexpr uint32 BOT_REFRESHMENT_SPELL = 128701;
-    constexpr uint32 BOT_FOOD_AURA_SPELL = 104935;   // Food (OBS_MOD_HEALTH)
-    constexpr uint32 BOT_DRINK_AURA_SPELL = 92800;   // Drink (MOD_POWER_REGEN via periodic dummy)
+
+    // Level-based rest auras: the item's own Food (OBS_MOD_HEALTH) / Drink spell,
+    // applied directly. Drink spells must be in the core's periodic-dummy →
+    // MOD_POWER_REGEN list (AuraEffect::CalculatePeriodic).
+    struct BotRestTier
+    {
+        uint8 minLevel;
+        uint32 spellId;
+    };
+
+    BotRestTier const BotFoodTiers[] =
+    {
+        { 85, 104934 },  // Frybread (82451)
+        { 80, 80169 },   // Massive Turkey Leg / Highland Pomegranate (58269 / 58265)
+        { 70, 43180 },   // Salted Venison (33454)
+        { 65, 35270 },   // Clefthoof Ribs (29451)
+        { 55, 27094 },   // Mag'har Grainbread (27855)
+        { 45, 1131 },    // Roasted Quail (8952)
+        { 35, 1129 },    // Cured Ham Steak (4599)
+        { 25, 1127 },    // Wild Hog Shank (3771)
+        { 15, 435 },     // Mutton Chop (3770)
+        { 5, 434 },      // Haunch of Meat (2287)
+        { 1, 433 },      // Tough Hunk of Bread (4540)
+    };
+
+    BotRestTier const BotDrinkTiers[] =
+    {
+        { 85, 104262 },  // Roasted Barley Tea (81406) — drink part of its Refreshment
+        { 80, 80167 },   // Highland Spring Water (58257)
+        { 70, 43182 },   // Pungent Seal Whey (33444)
+        { 60, 27089 },   // Purified Draenic Water (27860)
+        { 45, 1137 },    // Morning Glory Dew (8766)
+        { 35, 1135 },    // Moonberry Juice (1645)
+        { 25, 1133 },    // Sweet Nectar (1708)
+        { 15, 432 },     // Melon Juice (1205)
+        { 5, 431 },      // Ice Cold Milk (1179)
+        { 1, 430 },      // Refreshing Spring Water (159)
+    };
+
+    template <size_t N>
+    uint32 RestSpellForLevel(BotRestTier const (&tiers)[N], uint8 level)
+    {
+        for (BotRestTier const& tier : tiers)
+            if (level >= tier.minLevel)
+                return tier.spellId;
+        return tiers[N - 1].spellId;
+    }
+
+    template <size_t N>
+    bool HasAnyRestAura(Player const* player, BotRestTier const (&tiers)[N])
+    {
+        for (BotRestTier const& tier : tiers)
+            if (player->HasAura(tier.spellId))
+                return true;
+        return false;
+    }
+
+    template <size_t N>
+    void RemoveRestAuras(Player* player, BotRestTier const (&tiers)[N])
+    {
+        for (BotRestTier const& tier : tiers)
+            player->RemoveAurasDueToSpell(tier.spellId);
+    }
 
     // Follow a little further out than pets so a party of bots doesn't stack on
     // the leader.
@@ -5541,8 +5602,8 @@ bool PlayerbotAI::MemberHasFoodOrDrinkAura(Player const* player)
     // Explicit refreshment aura IDs (do not require NOT_SEATED — some MoP
     // wrappers omit that flag and we must not re-cast every AI tick).
     if (player->HasAura(BOT_REFRESHMENT_SPELL)
-        || player->HasAura(BOT_FOOD_AURA_SPELL)
-        || player->HasAura(BOT_DRINK_AURA_SPELL))
+        || HasAnyRestAura(player, BotFoodTiers)
+        || HasAnyRestAura(player, BotDrinkTiers))
         return true;
 
     Unit::AuraApplicationMap const& auras = player->GetAppliedAuras();
@@ -5578,8 +5639,8 @@ void PlayerbotAI::CancelRestConsumables()
         _bot->InterruptNonMeleeSpells(false);
     _bot->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_NOT_SEATED);
     _bot->RemoveAurasDueToSpell(BOT_REFRESHMENT_SPELL);
-    _bot->RemoveAurasDueToSpell(BOT_FOOD_AURA_SPELL);
-    _bot->RemoveAurasDueToSpell(BOT_DRINK_AURA_SPELL);
+    RemoveRestAuras(_bot, BotFoodTiers);
+    RemoveRestAuras(_bot, BotDrinkTiers);
 }
 
 bool PlayerbotAI::CastRefreshmentSpell()
@@ -5602,11 +5663,14 @@ bool PlayerbotAI::CastRefreshmentSpell()
 
     // Apply Food / Drink auras directly. CastSpell(false) often fails without an
     // item cast context, so self-bot / socket bots sat but never gained the aura.
-    // Drink 92800 uses the core periodic-dummy → MOD_POWER_REGEN path.
-    if (needHp && sSpellMgr->GetSpellInfo(BOT_FOOD_AURA_SPELL))
-        _bot->AddAura(BOT_FOOD_AURA_SPELL, _bot);
-    if (needMana && sSpellMgr->GetSpellInfo(BOT_DRINK_AURA_SPELL))
-        _bot->AddAura(BOT_DRINK_AURA_SPELL, _bot);
+    // Food and drink match the bot's level (see BotFoodTiers / BotDrinkTiers).
+    uint8 const level = _bot->getLevel();
+    uint32 const foodSpell = RestSpellForLevel(BotFoodTiers, level);
+    uint32 const drinkSpell = RestSpellForLevel(BotDrinkTiers, level);
+    if (needHp && sSpellMgr->GetSpellInfo(foodSpell))
+        _bot->AddAura(foodSpell, _bot);
+    if (needMana && sSpellMgr->GetSpellInfo(drinkSpell))
+        _bot->AddAura(drinkSpell, _bot);
 
     if (HasFoodOrDrinkAura())
         return true;
@@ -6366,7 +6430,7 @@ bool PlayerbotAI::HandleChatCommand(Player* from, std::string const& text, bool 
             _bot->SetStandState(UNIT_STAND_STATE_SIT);
         StartRefreshment();
         ack(_clientControlled
-            ? "Refreshing (drink 92800 / food 104935; auto when low with nc +food; cancels at full)."
+            ? "Refreshing (level-based food/drink; auto when low with nc +food; cancels at full)."
             : "Refreshing.");
         return true;
     }
