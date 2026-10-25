@@ -482,6 +482,9 @@ bool SpellReady(Player* bot, uint32 spellId)
         return false;
     if (bot->HasSpellCooldown(spellId))
         return false;
+    if (PlayerbotAI* ai = GetAI(bot))
+        if (ai->IsSpellBackedOff(spellId))
+            return false;
     return true;
 }
 

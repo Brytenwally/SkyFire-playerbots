@@ -79,6 +79,9 @@ public:
     void ResetStrategiesToRoleDefaults();
     // Re-check which gear set to wear on the next tick (after a re-gear).
     void ResetGearSet() { _gearSetPvp = -1; }
+    // Skip a spell that just failed to cast so the rotation moves on to its next pick.
+    void BackOffSpell(uint32 spellId);
+    bool IsSpellBackedOff(uint32 spellId) const;
     // After teleport/init: clear stale pathing and restore open-world activity
     // for ungrouped random bots (ResetStrategies alone leaves them on follow).
     void AfterInitRelocate(bool didTeleport);
@@ -338,6 +341,8 @@ private:
     uint32 _strandedCheckTimer = 0;
     // Gear set fully swapped in: 1 PvP, 0 PvE, -1 not settled yet.
     int8 _gearSetPvp = -1;
+    // spellId -> getMSTime() until which the rotation skips it.
+    std::unordered_map<uint32, uint32> _spellBackoff;
     // Corpses skipped after a full-bag loot attempt (still open once for rolls).
     std::unordered_set<uint64> _lootBagFullSkip;
     // Corpses we already opened so group rolls could start.

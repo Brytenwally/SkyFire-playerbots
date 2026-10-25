@@ -173,6 +173,8 @@ namespace
     // How far a bot will walk to loot a corpse or reach a repairer.
     // Keep loot near the group — long seeks cause follow↔loot thrash.
     constexpr float BOT_LOOT_SEEK_DIST = 25.0f;
+    // Long enough to fall through to the next ability, short enough to retry once the cause clears.
+    constexpr uint32 BOT_SPELL_BACKOFF_MS = 3000;
     constexpr float BOT_LOOT_LEADER_RADIUS = 40.0f;
     constexpr float BOT_REPAIR_SEEK_DIST = 20.0f;
     constexpr float BOT_VENDOR_SEEK_DIST = 20.0f;
@@ -2134,6 +2136,18 @@ void PlayerbotAI::StartHunterAutoShot(Unit* target)
         HunterDebugLog(std::string("AutoShot FAIL arm ") + BuildHunterStateSnapshot(target));
 }
 
+void PlayerbotAI::BackOffSpell(uint32 spellId)
+{
+    if (spellId)
+        _spellBackoff[spellId] = getMSTime() + BOT_SPELL_BACKOFF_MS;
+}
+
+bool PlayerbotAI::IsSpellBackedOff(uint32 spellId) const
+{
+    auto const it = _spellBackoff.find(spellId);
+    return it != _spellBackoff.end() && int32(it->second - getMSTime()) > 0;
+}
+
 void PlayerbotAI::DoRotation(Unit* target)
 {
     if (!target || !target->IsAlive())
@@ -2206,6 +2220,7 @@ void PlayerbotAI::DoRotation(Unit* target)
             if (cast)
                 return;
             HunterDebugLog(std::string("Spec shot FAILED id=") + std::to_string(specShot));
+            BackOffSpell(specShot);
         }
 
         if (_bot->HasSpell(1978) && !target->GetAura(118253) && !target->GetAura(1978))
@@ -2253,8 +2268,12 @@ void PlayerbotAI::DoRotation(Unit* target)
     }
 
     uint32 const selected = BotRotation::SelectNextSpell(_bot, target);
-    if (selected && BotRotation::CastSpell(_bot, target, selected))
-        return;
+    if (selected)
+    {
+        if (BotRotation::CastSpell(_bot, target, selected))
+            return;
+        BackOffSpell(selected);
+    }
 
     if (BotRotation::TryRacial(_bot, target))
         return;
