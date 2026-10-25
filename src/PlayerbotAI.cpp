@@ -3493,8 +3493,8 @@ bool PlayerbotAI::TryAvoidAoe()
     _bot->VisitNearbyObject(scanRange, searcher);
 
     // A moving hazard (e.g. a rotating fire wall) also covers the strip it sweeps through next.
-    float constexpr kMovingHazardLead = 5.0f;
-    float constexpr kMovingHazardMargin = 1.0f;
+    float constexpr kMovingHazardLead = 3.0f;
+    float constexpr kMovingHazardMargin = 0.5f;
 
     struct Hazard
     {
@@ -3690,31 +3690,57 @@ bool PlayerbotAI::TryAvoidAoe()
     {
         float angle;
         bool strict;
+        float dist;
+        bool orbit;
     };
     std::vector<AngleTry> tries;
     if (moving)
     {
         // Sidestepping only lands back in the sweep: stay ahead of it, or stay behind if it already passed
         float const along = (_bot->GetPositionX() - best.x) * best.dirX + (_bot->GetPositionY() - best.y) * best.dirY;
+
+        // Close to an untanked boss the sweep is usually turning around it: strafe around the boss ahead of it
+        // at the same range and keep attacking, instead of running off.
+        if (target && IsUntankedBoss(target) && _bot->GetExactDist2d(target) <= 12.0f)
+        {
+            float const relX = best.x - target->GetPositionX();
+            float const relY = best.y - target->GetPositionY();
+            float turn = (relX * best.dirY - relY * best.dirX) >= 0.0f ? 1.0f : -1.0f;
+            if (along < 0.0f)
+                turn = -turn;
+
+            float const minRange = melee ? 2.0f : 6.0f;
+            float const maxRange = melee ? 4.0f : 9.0f;
+            float const range = std::max(minRange, std::min(_bot->GetExactDist2d(target), maxRange));
+            float const botAngle = target->GetAngle(_bot);
+            for (float step : { 75.0f, 100.0f, 50.0f })
+            {
+                float const a = botAngle + turn * step * float(M_PI) / 180.0f;
+                float const px = target->GetPositionX() + range * std::cos(a);
+                float const py = target->GetPositionY() + range * std::sin(a);
+                tries.push_back({ _bot->GetAngle(px, py), false, _bot->GetExactDist2d(px, py), true });
+            }
+        }
+
         float const travel = std::atan2(best.dirY, best.dirX) + (along < 0.0f ? float(M_PI) : 0.0f);
-        tries.push_back({ travel, false });
-        tries.push_back({ travel + float(M_PI) / 4.0f, false });
-        tries.push_back({ travel - float(M_PI) / 4.0f, false });
+        tries.push_back({ travel, false, fleeDis, false });
+        tries.push_back({ travel + float(M_PI) / 4.0f, false, fleeDis, false });
+        tries.push_back({ travel - float(M_PI) / 4.0f, false, fleeDis, false });
     }
     else if (target)
     {
         float const angle = _bot->GetAngle(target);
         bool const tanking = target->GetVictim() == _bot;
-        tries.push_back({ angle + float(M_PI) / 2.0f, false });
-        tries.push_back({ angle - float(M_PI) / 2.0f, false });
-        tries.push_back({ angle, true });
+        tries.push_back({ angle + float(M_PI) / 2.0f, false, fleeDis, false });
+        tries.push_back({ angle - float(M_PI) / 2.0f, false, fleeDis, false });
+        tries.push_back({ angle, true, fleeDis, false });
         if (tanking)
-            tries.push_back({ angle + float(M_PI), false });
+            tries.push_back({ angle + float(M_PI), false, fleeDis, false });
         else if (!melee)
-            tries.push_back({ angle + float(M_PI), true });
+            tries.push_back({ angle + float(M_PI), true, fleeDis, false });
     }
     if (!moving)
-        tries.push_back({ _bot->GetAngle(best.x, best.y) + float(M_PI), false });
+        tries.push_back({ _bot->GetAngle(best.x, best.y) + float(M_PI), false, fleeDis, false });
 
     auto reversedRecently = [&](float angle)
     {
@@ -3744,7 +3770,7 @@ bool PlayerbotAI::TryAvoidAoe()
             // (or not move at all) while it stands in the hazard
             Position pos;
             _bot->GetPosition(&pos);
-            _bot->MovePositionToFirstCollision(pos, fleeDis, angle - _bot->GetOrientation());
+            _bot->MovePositionToFirstCollision(pos, tryAngle.dist, angle - _bot->GetOrientation());
             float x = pos.GetPositionX();
             float y = pos.GetPositionY();
             float z = pos.GetPositionZ();
@@ -3781,7 +3807,7 @@ bool PlayerbotAI::TryAvoidAoe()
             }
 
             float const score = hazardDist(best, x, y);
-            if (score <= bestScore)
+            if (score <= (tryAngle.orbit ? best.radius : bestScore))
                 continue;
 
             bestScore = score;
@@ -3790,6 +3816,10 @@ bool PlayerbotAI::TryAvoidAoe()
             destZ = z;
             destAngle = angle;
             have = true;
+
+            // Strafe spots are listed best first and keep the bot on the boss
+            if (tryAngle.orbit)
+                return;
         }
     };
 
