@@ -5753,6 +5753,8 @@ bool PlayerbotAI::HandleAutoQuesting()
 
 void PlayerbotAI::MoveToPosition(float x, float y, float z)
 {
+    if (BotMovement::PathCrossesClosedDoor(_bot, x, y, z))
+        return;
     _bot->GetMotionMaster()->Clear();
     _bot->GetMotionMaster()->MovePoint(1, x, y, z, true);
 }

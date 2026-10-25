@@ -51,6 +51,9 @@ namespace BotMovement
     // Path-aware travel: clamp Z, reject NOPATH, MovePoint with generatePath.
     bool MoveTo(Player* bot, float x, float y, float z);
 
+    // Doors are not part of the navmesh, so paths run straight through closed ones.
+    bool PathCrossesClosedDoor(Player* bot, float x, float y, float z);
+
     // Face via orientation only (no MoveSpline / MOVEMENTFLAG_FORWARD).
     // Never while casting.
     void FaceOrientation(Player* bot, float orientation);

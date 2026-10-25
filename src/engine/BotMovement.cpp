@@ -4,6 +4,11 @@
 
 #include "BotMovement.h"
 
+#include "CellImpl.h"
+#include "GameObject.h"
+#include "GameObjectModel.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
 #include "MotionMaster.h"
 #include "MoveSpline.h"
 #include "Object.h"
@@ -12,7 +17,9 @@
 #include "SpellAuraDefines.h"
 #include "Unit.h"
 
+#include <algorithm>
 #include <cmath>
+#include <list>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -147,9 +154,52 @@ bool IsCasting(Player* bot)
         return MovePoint(bot, x, y, z, !airborne);
     }
 
+    bool PathCrossesClosedDoor(Player* bot, float x, float y, float z)
+    {
+        if (!bot || !bot->IsInWorld())
+            return false;
+
+        float const reach = std::min(bot->GetExactDist(x, y, z) + 10.0f, 100.0f);
+        std::list<GameObject*> doors;
+        Skyfire::GameObjectInRangeCheck check(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), reach);
+        Skyfire::GameObjectListSearcher<Skyfire::GameObjectInRangeCheck> searcher(bot, doors, check);
+        bot->VisitNearbyGridObject(reach, searcher);
+        doors.remove_if([](GameObject* go)
+        {
+            return go->GetGoType() != GAMEOBJECT_TYPE_DOOR || go->GetGoState() != GOState::GO_STATE_READY
+                || !go->m_model || !go->m_model->isEnabled();
+        });
+        if (doors.empty())
+            return false;
+
+        PathGenerator path(bot);
+        path.CalculatePath(x, y, z);
+        Movement::PointsArray const& points = path.GetPath();
+        G3D::Vector3 const lift(0.0f, 0.0f, 1.5f);
+        for (size_t i = 1; i < points.size(); ++i)
+        {
+            G3D::Vector3 const from = points[i - 1] + lift;
+            G3D::Vector3 const to = points[i] + lift;
+            float const length = (to - from).magnitude();
+            if (length < 0.01f)
+                continue;
+
+            G3D::Ray const ray = G3D::Ray::fromOriginAndDirection(from, (to - from) / length);
+            for (GameObject* door : doors)
+            {
+                float dist = length;
+                if (door->m_model->intersectRay(ray, dist, true, bot->GetPhaseMask()))
+                    return true;
+            }
+        }
+        return false;
+    }
+
     bool MoveFollowLeader(Player* bot, Unit* leader, float distance, float angle)
     {
         if (!CanMove(bot) || !leader)
+            return false;
+        if (PathCrossesClosedDoor(bot, leader->GetPositionX(), leader->GetPositionY(), leader->GetPositionZ()))
             return false;
         EnsureRunning(bot);
         bot->GetMotionMaster()->Clear();
@@ -161,6 +211,8 @@ bool IsCasting(Player* bot)
     {
         if (!CanMove(bot) || !target || !target->IsAlive())
             return false;
+        if (PathCrossesClosedDoor(bot, target->GetPositionX(), target->GetPositionY(), target->GetPositionZ()))
+            return false;
         EnsureRunning(bot);
         bot->GetMotionMaster()->Clear();
         bot->GetMotionMaster()->MoveChase(target, distance);
@@ -170,6 +222,8 @@ bool IsCasting(Player* bot)
     bool MovePoint(Player* bot, float x, float y, float z, bool generatePath)
     {
         if (!CanMove(bot))
+            return false;
+        if (generatePath && PathCrossesClosedDoor(bot, x, y, z))
             return false;
         EnsureRunning(bot);
         bot->GetMotionMaster()->Clear();
@@ -199,6 +253,8 @@ bool IsCasting(Player* bot)
         float destY = end.y;
         float destZ = end.z;
         bot->UpdateAllowedPositionZ(destX, destY, destZ);
+        if (PathCrossesClosedDoor(bot, destX, destY, destZ))
+            return false;
 
         bot->GetMotionMaster()->Clear();
         bot->GetMotionMaster()->MovePoint(1, destX, destY, destZ, true);
