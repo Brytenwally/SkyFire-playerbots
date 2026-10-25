@@ -2148,6 +2148,19 @@ bool PlayerbotAI::IsSpellBackedOff(uint32 spellId) const
     return it != _spellBackoff.end() && int32(it->second - getMSTime()) > 0;
 }
 
+void PlayerbotAI::NoteSpellCast(uint32 spellId, uint64 targetGuid)
+{
+    if (spellId)
+        _lastSpellCast[spellId] = std::make_pair(targetGuid, getMSTime());
+}
+
+bool PlayerbotAI::CastOnRecently(uint32 spellId, uint64 targetGuid, uint32 withinMs) const
+{
+    auto const it = _lastSpellCast.find(spellId);
+    return it != _lastSpellCast.end() && it->second.first == targetGuid
+        && getMSTimeDiff(it->second.second, getMSTime()) < withinMs;
+}
+
 void PlayerbotAI::DoRotation(Unit* target)
 {
     if (!target || !target->IsAlive())

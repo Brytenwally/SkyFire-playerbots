@@ -82,6 +82,9 @@ public:
     // Skip a spell that just failed to cast so the rotation moves on to its next pick.
     void BackOffSpell(uint32 spellId);
     bool IsSpellBackedOff(uint32 spellId) const;
+    // Successful rotation casts, so a debuff the bot cannot see on the target is not recast every GCD.
+    void NoteSpellCast(uint32 spellId, uint64 targetGuid);
+    bool CastOnRecently(uint32 spellId, uint64 targetGuid, uint32 withinMs) const;
     // After teleport/init: clear stale pathing and restore open-world activity
     // for ungrouped random bots (ResetStrategies alone leaves them on follow).
     void AfterInitRelocate(bool didTeleport);
@@ -343,6 +346,8 @@ private:
     int8 _gearSetPvp = -1;
     // spellId -> getMSTime() until which the rotation skips it.
     std::unordered_map<uint32, uint32> _spellBackoff;
+    // spellId -> (target GUID, getMSTime() of the cast).
+    std::unordered_map<uint32, std::pair<uint64, uint32>> _lastSpellCast;
     // Corpses skipped after a full-bag loot attempt (still open once for rolls).
     std::unordered_set<uint64> _lootBagFullSkip;
     // Corpses we already opened so group rolls could start.

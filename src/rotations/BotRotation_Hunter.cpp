@@ -4,6 +4,8 @@
 #include "BotRotationLists.h"
 #include "Pet.h"
 #include "Player.h"
+#include "PlayerbotAI.h"
+#include "PlayerbotMgr.h"
 #include "Unit.h"
 
 namespace BotRotation
@@ -51,9 +53,14 @@ namespace
         LOCK_AND_LOAD     = 56453,
     };
 
+    // Any hunter's mark gives the damage bonus. A mark cast moments ago counts as up even
+    // when the aura is not visible on the target, so it is not recast every GCD.
     bool NeedsMark(Player* bot, Unit* target)
     {
-        return NeedsMyAuraRefresh(bot, target, HUNTERS_MARK, 3.0f);
+        if (HasAuraUp(target, HUNTERS_MARK))
+            return false;
+        PlayerbotAI* ai = sPlayerbotMgr->GetBotAI(bot);
+        return !ai || !ai->CastOnRecently(HUNTERS_MARK, target->GetGUID(), 30 * IN_MILLISECONDS);
     }
 
     bool NeedsSerpent(Player* bot, Unit* target)

@@ -734,6 +734,7 @@ bool CastSpell(Player* bot, Unit* enemy, uint32 spellId)
         {
             char const* name = info->SpellName ? info->SpellName : "spell";
             ai->DebugCombat(std::string("Casting ") + name);
+            ai->NoteSpellCast(spellId, castTarget->GetGUID());
         }
     }
     else if (PlayerbotAI* ai = GetAI(bot))
@@ -871,7 +872,10 @@ bool CastHunterShot(Player* bot, Unit* target, uint32 spellId)
     if (ai)
     {
         if (ok)
+        {
             ai->DebugCombat(std::string("Casting ") + name);
+            ai->NoteSpellCast(spellId, target->GetGUID());
+        }
         else if (ai->IsCombatDebug())
             ai->DebugCombat(std::string("FAILED ") + name);
     }
