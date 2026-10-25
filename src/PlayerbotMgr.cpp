@@ -7,6 +7,7 @@
 #include "PlayerbotAI.h"
 #include "rotations/BotRotation.h"
 #include "AccountMgr.h"
+#include "BotGearSets.h"
 #include "BotPreferredMounts.h"
 #include "BotTeleportMaps.h"
 #include "BotVendorHubs.h"
@@ -1727,6 +1728,28 @@ namespace
     // Results are cached — mass init of similar level/class bots hits memory.
     std::unordered_map<std::string, std::vector<uint32>> g_itemQueryCache;
 
+    // Which half of the item pool gear rolls draw from (PvP = resilience or PvP power).
+    enum class GearPool : uint8 { Any, PveOnly, PvpOnly };
+    GearPool g_gearPool = GearPool::Any;
+
+    struct ScopedGearPool
+    {
+        explicit ScopedGearPool(GearPool pool) : _previous(g_gearPool) { g_gearPool = pool; }
+        ~ScopedGearPool() { g_gearPool = _previous; }
+        GearPool _previous;
+    };
+
+    std::string PvpStatClause()
+    {
+        std::ostringstream c;
+        c << '(';
+        for (uint32 i = 1; i <= MAX_ITEM_PROTO_STATS; ++i)
+            c << (i > 1 ? " OR " : "") << "stat_type" << i << " IN ("
+              << uint32(ITEM_MOD_RESILIENCE_RATING) << ',' << uint32(ITEM_MOD_PVP_POWER) << ')';
+        c << ')';
+        return c.str();
+    }
+
     std::vector<uint32> QueryItemEntries(Player* bot, std::string const& where, uint32 primaryStat,
         uint32 exclude, int minQuality, int maxQuality)
     {
@@ -1739,9 +1762,9 @@ namespace
 
         std::ostringstream key;
         // v3: broader QA/template bans + rare-low-ilvl reject + min ItemLevel floor.
-        key << "v3|" << where << '|' << level << '|' << classBit << '|' << raceBit << '|'
+        key << "v4|" << where << '|' << level << '|' << classBit << '|' << raceBit << '|'
             << minReq << '|' << qualityMin << '|' << qualityCap << '|' << primaryStat
-            << '|' << exclude;
+            << '|' << exclude << '|' << uint32(g_gearPool);
         std::string const cacheKey = key.str();
         if (auto it = g_itemQueryCache.find(cacheKey); it != g_itemQueryCache.end())
             return it->second;
@@ -1774,6 +1797,11 @@ namespace
 
         if (exclude)
             q << " AND entry <> " << exclude;
+
+        if (g_gearPool == GearPool::PveOnly)
+            q << " AND NOT " << PvpStatClause();
+        else if (g_gearPool == GearPool::PvpOnly)
+            q << " AND " << PvpStatClause();
 
         if (primaryStat)
             q << " AND (stat_type1=" << primaryStat << " OR stat_type2=" << primaryStat
@@ -2313,7 +2341,8 @@ namespace
         int minQuality, int maxQuality)
     {
         uint32 const passStats[2] = { primaryStat, 0 };
-        int const passes = primaryStat ? 2 : 1;
+        // A PvP piece with the wrong primary stat is worse than keeping the PvE piece.
+        int const passes = primaryStat && g_gearPool != GearPool::PvpOnly ? 2 : 1;
         constexpr size_t kRandomPool = 8;
 
         for (int p = 0; p < passes; ++p)
@@ -2553,6 +2582,27 @@ namespace
         GearWeapons(bot, role, specId, minQuality, maxQuality);
     }
 
+    // Rolls a PvP set into the gear bag, then a PvE set to wear. Slots with no
+    // PvP piece keep the PvE item in battlegrounds too.
+    void GearBotSets(Player* bot, BotRole role, uint32 specId, int minQuality, int maxQuality)
+    {
+        bool const hasGearBag = BotGearSets::EnsureGearBag(bot) != nullptr;
+        if (hasGearBag)
+        {
+            BotGearSets::ClearStoredSet(bot);
+            {
+                ScopedGearPool pvp(GearPool::PvpOnly);
+                GearBot(bot, role, specId, minQuality, maxQuality);
+            }
+            BotGearSets::StoreEquippedAsPvpSet(bot);
+        }
+
+        ScopedGearPool pve(GearPool::PveOnly);
+        GearBot(bot, role, specId, minQuality, maxQuality);
+        if (hasGearBag)
+            BotGearSets::DropMismatchedWeapons(bot);
+    }
+
     // Rest is spell-based (level-based food/drink auras) — no bag food/drink.
     void GiveRestConsumables(Player* /*bot*/)
     {
@@ -2762,7 +2812,7 @@ void PlayerbotMgr::InitializeBot(Player* bot, int roleOverride, uint32 specOverr
     if (qualityFloor > qualityCap)
         qualityFloor = qualityCap;
 
-    GearBot(bot, role, specId, qualityFloor, qualityCap);
+    GearBotSets(bot, role, specId, qualityFloor, qualityCap);
     GiveRestConsumables(bot);
 
     // After relevel + gear so the destination matches the bot's final level.
@@ -2775,6 +2825,7 @@ void PlayerbotMgr::InitializeBot(Player* bot, int roleOverride, uint32 specOverr
     if (auto it = _ai.find(bot->GetGUID()); it != _ai.end() && it->second)
     {
         it->second->ResetStrategiesToRoleDefaults();
+        it->second->ResetGearSet();
         it->second->AfterInitRelocate(teleport);
     }
 

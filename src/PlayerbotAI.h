@@ -77,6 +77,8 @@ public:
 
     // Re-apply role-default strategies (after init/spec change).
     void ResetStrategiesToRoleDefaults();
+    // Re-check which gear set to wear on the next tick (after a re-gear).
+    void ResetGearSet() { _gearSetPvp = -1; }
     // After teleport/init: clear stale pathing and restore open-world activity
     // for ungrouped random bots (ResetStrategies alone leaves them on follow).
     void AfterInitRelocate(bool didTeleport);
@@ -334,6 +336,8 @@ private:
     uint64 _lootGuid;
     uint32 _wanderTimer;
     uint32 _strandedCheckTimer = 0;
+    // Gear set fully swapped in: 1 PvP, 0 PvE, -1 not settled yet.
+    int8 _gearSetPvp = -1;
     // Corpses skipped after a full-bag loot attempt (still open once for rolls).
     std::unordered_set<uint64> _lootBagFullSkip;
     // Corpses we already opened so group rolls could start.

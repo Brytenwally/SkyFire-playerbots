@@ -5,6 +5,7 @@
 
 #include "PlayerbotAI.h"
 #include "PlayerbotMgr.h"
+#include "BotGearSets.h"
 #include "BotPreferredMounts.h"
 #include "BotTeleportMaps.h"
 #include "BotVendorHubs.h"
@@ -904,6 +905,17 @@ void PlayerbotAI::UpdateAI(uint32 diff)
     EnsureVisiblePhases();
 
     HandleInteractions();
+
+    // Armor can only be changed out of combat.
+    if (!_clientControlled && !_bot->IsInCombat())
+    {
+        int8 const wantPvp = _bot->GetMap()->IsBattlegroundOrArena() ? 1 : 0;
+        if (wantPvp != _gearSetPvp)
+        {
+            BotGearSets::WearSet(_bot, wantPvp != 0);
+            _gearSetPvp = wantPvp;
+        }
+    }
 
     // Keep raid/self buffs topped up out of combat when not mid-cast.
     if (!_bot->IsInCombat() && _bot->getAttackers().empty()
