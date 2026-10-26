@@ -863,10 +863,54 @@ bool PlayerbotAI::NeedsOocHealPublic() const
     return const_cast<PlayerbotAI*>(this)->SelectHealTarget(BOT_HEAL_BELOW_PCT) != nullptr;
 }
 
+void PlayerbotAI::HandleSlowActivity()
+{
+    HandlePendingInvites();
+    if (!_bot->IsAlive())
+    {
+        TryAcceptResurrect();
+        return;
+    }
+
+    if (_resting || HasFoodOrDrinkAura() || _bot->IsSitState())
+        HandleRest();
+
+    if (_clientControlled)
+        return;
+
+    Group* group = _bot->GetGroup();
+    uint64 const leaderGuid = group ? group->GetLeaderGUID() : 0;
+    if (!leaderGuid || leaderGuid == _bot->GetGUID())
+        return;
+
+    Player* leader = ObjectAccessor::FindPlayer(leaderGuid);
+    if (!leader || !leader->IsInWorld() || !leader->IsAlive())
+        return;
+    if (!leader->GetSession() || leader->GetSession()->IsBot())
+        return;
+
+    if (leader->GetMap() != _bot->GetMap() || _bot->GetDistance(leader) > BOT_TELEPORT_DIST)
+        TeleportToLeader(leader);
+}
+
 void PlayerbotAI::UpdateAI(uint32 diff)
 {
     if (!_bot || _bot->GetTypeId() != TypeID::TYPEID_PLAYER || !_bot->IsInWorld())
         return;
+
+    if (WorldSession* session = _bot->GetSession())
+    {
+        if (session->IsBot())
+        {
+            if (session->GetBotActivity() == WorldSession::BotActivity::Dormant)
+                return;
+            if (session->GetBotActivity() == WorldSession::BotActivity::Slow)
+            {
+                HandleSlowActivity();
+                return;
+            }
+        }
+    }
 
     // Invites / loot rolls / rez accepts must react immediately — they time out
     // (or stall forever for bots) if only handled on the coarse AI interval.

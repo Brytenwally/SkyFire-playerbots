@@ -217,6 +217,22 @@ public:
             sPlayerbotMgr->GetLoginsPerTick(), sPlayerbotMgr->GetMaxPendingLogins(),
             sPlayerbotMgr->GetInitPerTick());
         handler->PSendSysMessage("Active bots: %u.", sPlayerbotMgr->GetActiveBotCount());
+        uint32 full = 0;
+        uint32 slow = 0;
+        uint32 dormant = 0;
+        sPlayerbotMgr->GetBotActivityCounts(full, slow, dormant);
+        if (sPlayerbotMgr->IsActivityEnabled())
+        {
+            if (sPlayerbotMgr->GetActivityActiveRange() <= 0.0f)
+                handler->PSendSysMessage("Activity throttle: on (full %u, slow %u, dormant %u, range visibility, slow every %u ms).",
+                    full, slow, dormant, sPlayerbotMgr->GetActivitySlowInterval());
+            else
+                handler->PSendSysMessage("Activity throttle: on (full %u, slow %u, dormant %u, range %.0f yd, slow every %u ms).",
+                    full, slow, dormant, sPlayerbotMgr->GetActivityActiveRange(), sPlayerbotMgr->GetActivitySlowInterval());
+        }
+        else
+            handler->PSendSysMessage("Activity throttle: off (full %u, slow %u, dormant %u).",
+                full, slow, dormant);
         return true;
     }
 

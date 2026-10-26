@@ -149,6 +149,12 @@ public:
     uint32 GetAutoMinLevel() const { return _autoMinLevel; }
     uint32 GetAutoMaxLevel() const { return _autoMaxLevel; }
 
+    bool IsActivityEnabled() const { return _activityEnabled; }
+    float GetActivityActiveRange() const { return _activityActiveRange; }
+    uint32 GetActivitySlowInterval() const { return _activitySlowInterval; }
+    // Counts socket bots by the activity Map::Update is currently honoring.
+    void GetBotActivityCounts(uint32& full, uint32& slow, uint32& dormant) const;
+
     uint32 GetActiveBotCount() const { return uint32(_bots.size()); }
     uint32 GetRandomBotCount() const { return uint32(_randomBots.size()); }
     uint32 GetCandidateCount() const { return uint32(_candidates.size()); }
@@ -197,6 +203,10 @@ private:
     void DestroyBotAI(uint64 characterGuid);
     // When a real player is solo-queued for LFG, queue level-matched bots too.
     void UpdateLfgAutoJoin(uint32 diff);
+    // Full / slow / dormant from real-player positions. Applies next map tick.
+    void UpdateBotActivity();
+    // Stop movement and drop combat when a bot leaves full speed.
+    void QuiesceBot(Player* bot);
     void ProcessInitQueue();
     void UpsertInitQueueJob(uint64 guid, int roleOverride, uint32 specOverride,
         int maxItemQuality, bool relevel, bool teleport, bool teleportFromCommand);
@@ -273,6 +283,11 @@ private:
     bool _vendorSellGreens = true;
     float _vendorHubMaxDistance = 500.0f;
     bool _questAutoPickReward = true;
+
+    // Empty maps freeze bots; same map but far away idles on a slow heartbeat.
+    bool _activityEnabled = true;
+    float _activityActiveRange = 0.0f; // 0 = that map's visibility range
+    uint32 _activitySlowInterval = 5000;
 
     // Background `.playerbots init` work — applied a few bots per world tick.
     struct QueuedBotInit

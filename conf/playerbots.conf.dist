@@ -344,3 +344,36 @@ Playerbots.Vendor.HubMaxDistance = 500
 #        Default:     1
 
 Playerbots.Quest.AutoPickReward = 1
+
+#
+#    Playerbots.Activity.Enable
+#        Description: When 1, socket bots skip map updates on maps with no real
+#                     player (dormant) and only heartbeat every SlowInterval
+#                     when a real player is on the same map but farther than
+#                     ActiveRange (slow). Full speed when a real player is in
+#                     range, the bot is grouped with a real player, or the bot
+#                     is in a dungeon, raid, scenario, battleground, or arena
+#                     that already has a real player. 0 keeps every bot on the
+#                     normal tick.
+#        Default:     1 - (Enabled)
+
+Playerbots.Activity.Enable = 1
+
+#
+#    Playerbots.Activity.ActiveRange
+#        Description: Yards from a real player at which an ungrouped bot on the
+#                     same map runs at full speed. 0 uses that map's visibility
+#                     distance, so a bot the player can see is already active.
+#        Default:     0
+
+Playerbots.Activity.ActiveRange = 0
+
+#
+#    Playerbots.Activity.SlowInterval
+#        Description: Milliseconds between idle heartbeats for bots that share
+#                     a map with a real player but sit outside ActiveRange.
+#                     Those heartbeats only accept invites, finish a drink, or
+#                     teleport to a real group leader. Clamped to 1–60000.
+#        Default:     5000
+
+Playerbots.Activity.SlowInterval = 5000

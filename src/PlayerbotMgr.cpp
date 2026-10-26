@@ -5,6 +5,7 @@
 
 #include "PlayerbotMgr.h"
 #include "PlayerbotAI.h"
+#include "engine/BotMovement.h"
 #include "rotations/BotRotation.h"
 #include "AccountMgr.h"
 #include "BotGearSets.h"
@@ -61,6 +62,36 @@ namespace
         std::string::size_type slash = mainConfig.find_last_of("/\\");
         std::string directory = (slash != std::string::npos) ? mainConfig.substr(0, slash + 1) : "";
         return directory + "playerbots.conf";
+    }
+
+    uint64 BotMapKey(uint32 mapId, uint32 instanceId)
+    {
+        return (uint64(mapId) << 32) | uint64(instanceId);
+    }
+
+    bool BotGroupedWithRealPlayer(Player* bot)
+    {
+        Group* group = bot->GetGroup();
+        if (!group)
+            return false;
+
+        for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+        {
+            Player* member = itr->GetSource();
+            if (!member || member == bot || !member->IsInWorld())
+                continue;
+            WorldSession* session = member->GetSession();
+            if (session && !session->IsBot())
+                return true;
+        }
+        return false;
+    }
+
+    // Dungeon, raid, scenario, battleground, or arena: one real player wakes
+    // every bot in that instance, including rooms the player has not reached.
+    bool BotInstanceKeepsFullTick(Map const* map)
+    {
+        return map && (map->IsInstance() || map->IsBattlegroundOrArena());
     }
 }
 
@@ -138,6 +169,18 @@ void PlayerbotMgr::LoadConfig()
     _vendorHubMaxDistance = float(sConfigMgr->GetFloatDefault("Playerbots.Vendor.HubMaxDistance", 500.0f));
     _questAutoPickReward = sConfigMgr->GetBoolDefault("Playerbots.Quest.AutoPickReward", true);
 
+    _activityEnabled = sConfigMgr->GetBoolDefault("Playerbots.Activity.Enable", true);
+    _activityActiveRange = sConfigMgr->GetFloatDefault("Playerbots.Activity.ActiveRange", 0.0f);
+    _activitySlowInterval = uint32(sConfigMgr->GetIntDefault("Playerbots.Activity.SlowInterval", 5000));
+    if (_activityActiveRange < 0.0f)
+        _activityActiveRange = 0.0f;
+    if (_activityActiveRange > 2000.0f)
+        _activityActiveRange = 2000.0f;
+    if (_activitySlowInterval < 1)
+        _activitySlowInterval = 5000;
+    if (_activitySlowInterval > 60000)
+        _activitySlowInterval = 60000;
+
     // Clamp to sane ranges so bad config can't create invalid characters.
     if (_autoAlliancePct > 100) _autoAlliancePct = 100;
     if (_autoTankPct > 100) _autoTankPct = 100;
@@ -177,9 +220,10 @@ void PlayerbotMgr::LoadConfig()
     _candidatesLoaded = false;
 
     if (_enabled)
-        SF_LOG_INFO("modules", "[mod-playerbots] Enabled (random bots: %s, max: %u, account prefix: '%s', LFG join: %s, levels %u-%u, gear quality %d-%d).",
+        SF_LOG_INFO("modules", "[mod-playerbots] Enabled (random bots: %s, max: %u, account prefix: '%s', LFG join: %s, levels %u-%u, gear quality %d-%d, activity: %s).",
             _randomBotsEnabled ? "on" : "off", _maxRandomBots, _accountPrefix.c_str(),
-            _joinLfg ? "on" : "off", _autoMinLevel, _autoMaxLevel, _gearMinQuality, _gearMaxQuality);
+            _joinLfg ? "on" : "off", _autoMinLevel, _autoMaxLevel, _gearMinQuality, _gearMaxQuality,
+            _activityEnabled ? "on" : "off");
     else
         SF_LOG_INFO("modules", "[mod-playerbots] Disabled via configuration.");
 }
@@ -214,11 +258,20 @@ void PlayerbotMgr::Update(uint32 diff)
         Player* bot = ai->GetBot();
         if (!bot || bot->GetTypeId() != TypeID::TYPEID_PLAYER || !bot->IsInWorld())
             continue;
+        // Dormant and slow bots do not get Player::Update, so party invites
+        // would sit until a player walked onto their map.
+        if (WorldSession* session = bot->GetSession())
+            if (session->IsBot() && session->GetBotActivity() != WorldSession::BotActivity::Full)
+                ai->AcceptPendingInvite();
         ai->HandleLfg();
     }
 
     // AC-style: when a real player solo-queues LFG, fill with level-matched bots.
     UpdateLfgAutoJoin(diff);
+
+    // Runs after map updates, so the flags apply on the next tick. Also runs
+    // when the random pool is off — manually added bots need the same gate.
+    UpdateBotActivity();
 
     if (!_randomBotsEnabled)
         return;
@@ -239,6 +292,147 @@ void PlayerbotMgr::Update(uint32 diff)
     uint32 const onlineOrPending = uint32(_randomBots.size() + _pendingLogins.size());
     if (onlineOrPending < _maxRandomBots && _pendingLogins.size() < _maxPendingLogins)
         TrySpawnRandomBot();
+}
+
+void PlayerbotMgr::QuiesceBot(Player* bot)
+{
+    if (!bot || !bot->IsInWorld())
+        return;
+
+    std::vector<Unit*> attackers(bot->getAttackers().begin(), bot->getAttackers().end());
+    for (Unit* attacker : attackers)
+    {
+        if (!attacker || !attacker->IsInWorld())
+            continue;
+        bot->getHostileRefManager().deleteReference(attacker);
+        if (attacker->CanHaveThreatList() && attacker->getThreatManager().isThreatListEmpty())
+            attacker->CombatStop(true);
+    }
+
+    bot->CombatStopWithPets(true);
+    BotMovement::StopAndIdle(bot);
+}
+
+void PlayerbotMgr::GetBotActivityCounts(uint32& full, uint32& slow, uint32& dormant) const
+{
+    full = 0;
+    slow = 0;
+    dormant = 0;
+    for (auto const& pair : _bots)
+    {
+        WorldSession* session = pair.second;
+        if (!session)
+            continue;
+        switch (session->GetBotActivity())
+        {
+            case WorldSession::BotActivity::Slow:
+                ++slow;
+                break;
+            case WorldSession::BotActivity::Dormant:
+                ++dormant;
+                break;
+            default:
+                ++full;
+                break;
+        }
+    }
+}
+
+void PlayerbotMgr::UpdateBotActivity()
+{
+    if (!_activityEnabled)
+    {
+        for (auto const& pair : _bots)
+            if (pair.second)
+                pair.second->SetBotActivity(WorldSession::BotActivity::Full);
+        return;
+    }
+
+    struct RealPlayerPos
+    {
+        float x = 0.0f;
+        float y = 0.0f;
+        float z = 0.0f;
+    };
+
+    std::unordered_map<uint64, std::vector<RealPlayerPos>> playersByMap;
+    SessionMap const& sessions = sWorld->GetAllSessions();
+    for (SessionMap::const_iterator itr = sessions.begin(); itr != sessions.end(); ++itr)
+    {
+        WorldSession* session = itr->second;
+        Player* player = session ? session->GetPlayer() : nullptr;
+        if (!player || !player->IsInWorld() || !player->GetMap())
+            continue;
+        if (session->IsBot())
+            continue;
+
+        RealPlayerPos pos;
+        pos.x = player->GetPositionX();
+        pos.y = player->GetPositionY();
+        pos.z = player->GetPositionZ();
+        playersByMap[BotMapKey(player->GetMapId(), player->GetInstanceId())].push_back(pos);
+    }
+
+    std::unordered_set<uint64> initializing;
+    for (QueuedBotInit const& job : _initQueue)
+        initializing.insert(job.guid);
+
+    for (auto const& pair : _bots)
+    {
+        WorldSession* session = pair.second;
+        if (!session)
+            continue;
+
+        session->SetBotSlowInterval(_activitySlowInterval);
+
+        Player* bot = session->GetPlayer();
+        WorldSession::BotActivity next = WorldSession::BotActivity::Full;
+        if (bot && bot->IsInWorld() && bot->GetMap() && !IsSelfBot(bot->GetGUID()))
+        {
+            bool const porting = bot->IsBeingTeleported() || bot->HasDelayedTeleport();
+            if (!porting && !initializing.count(bot->GetGUID()))
+            {
+                if (BotGroupedWithRealPlayer(bot))
+                    next = WorldSession::BotActivity::Full;
+                else
+                {
+                    auto onMap = playersByMap.find(BotMapKey(bot->GetMapId(), bot->GetInstanceId()));
+                    if (onMap == playersByMap.end())
+                        next = WorldSession::BotActivity::Dormant;
+                    else if (BotInstanceKeepsFullTick(bot->GetMap()))
+                        next = WorldSession::BotActivity::Full;
+                    else
+                    {
+                        float range = _activityActiveRange;
+                        if (range <= 0.0f)
+                            range = bot->GetMap()->GetVisibilityRange();
+                        if (range < 1.0f)
+                            range = 100.0f;
+                        float const rangeSq = range * range;
+                        bool inRange = false;
+                        for (RealPlayerPos const& pos : onMap->second)
+                        {
+                            float const dx = pos.x - bot->GetPositionX();
+                            float const dy = pos.y - bot->GetPositionY();
+                            float const dz = pos.z - bot->GetPositionZ();
+                            if (dx * dx + dy * dy + dz * dz <= rangeSq)
+                            {
+                                inRange = true;
+                                break;
+                            }
+                        }
+                        next = inRange ? WorldSession::BotActivity::Full
+                                       : WorldSession::BotActivity::Slow;
+                    }
+                }
+            }
+        }
+
+        if (session->GetBotActivity() == WorldSession::BotActivity::Full
+            && next != WorldSession::BotActivity::Full)
+            QuiesceBot(bot);
+        session->SetBotActivity(next);
+    }
 }
 
 void PlayerbotMgr::LoadCandidates()

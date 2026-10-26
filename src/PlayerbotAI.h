@@ -63,6 +63,10 @@ public:
     // and is not safe from Map::Update worker threads.
     void HandleLfg();
 
+    // Dormant bots skip Player::Update, so party invites are accepted here
+    // from PlayerbotMgr::Update on the world thread.
+    void AcceptPendingInvite() { HandlePendingInvites(); }
+
     Player* GetBot() const { return _bot; }
     // Relog creates a new Player with the same GUID; keep _bot on the live object.
     void Rebind(Player* bot) { _bot = bot; }
@@ -176,6 +180,8 @@ private:
 
     // Behaviour steps.
     void HandlePendingInvites();
+    // Slow activity: invite, finish a drink, teleport to a real leader. No wander.
+    void HandleSlowActivity();
     // On join: follow pack (-quests/-grind). On leave (random bots): restore +quests/+grind.
     void SyncPartyStrategies();
     void HandleInteractions();
