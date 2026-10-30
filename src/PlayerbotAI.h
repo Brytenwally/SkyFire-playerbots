@@ -271,6 +271,8 @@ private:
     bool IsRangedClass() const;
     // Mage / Warlock / Elemental / Balance / Priest: cast only — never weapon swing.
     bool IsPureCaster() const;
+    // Mistweaver in healer dps: fistweaves in melee instead of holding cast range.
+    bool IsMeleeHealerDps() const;
     // Hunter ranged Auto Shot (spell 75), not melee Attack().
     bool IsHunterRanged() const;
     bool GroupInCombat() const;

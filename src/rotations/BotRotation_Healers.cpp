@@ -360,12 +360,28 @@ uint32 SelectMistweaver(HealContext const& ctx)
         LIFE_COCOON         = 116849,
         REVIVAL             = 115310,
         THUNDER_FOCUS_TEA   = 116680,
+        STANCE_WISE_SERPENT = 115070,
+        VITAL_MISTS         = 118674,
+        EXPEL_HARM          = 115072,
+        CHI_WAVE            = 115098,
+        ZEN_SPHERE          = 124081,
+        CHI_BURST           = 123986,
+        MANA_TEA            = 115294,
+        MANA_TEA_GLYPHED    = 123761,
+        MANA_TEA_STACKS     = 115867,
     };
+
+    if (ReadyToShapeshift(bot, STANCE_WISE_SERPENT))
+        return STANCE_WISE_SERPENT;
 
     if (IsCritical(ctx) && CanTryCast(bot, LIFE_COCOON))
         return LIFE_COCOON;
     if (ctx.injuredAllies >= 4 && CanTryCast(bot, REVIVAL))
         return REVIVAL;
+
+    // Five Vital Mists stacks make Surging Mist instant and free.
+    if (AuraStacks(bot, VITAL_MISTS) >= 5 && ctx.healTargetHealthPct < 90.0f && CanTryCast(bot, SURGING_MIST))
+        return SURGING_MIST;
 
     if (NeedsMaintenance(ctx) && CanTryCast(bot, THUNDER_FOCUS_TEA))
         return THUNDER_FOCUS_TEA;
@@ -377,6 +393,29 @@ uint32 SelectMistweaver(HealContext const& ctx)
         return ENVELOPING_MIST;
     if (urgent && AllowExpensiveHeal(ctx) && CanTryCast(bot, SURGING_MIST))
         return SURGING_MIST;
+
+    if (ctx.injuredAllies >= 2 || urgent)
+    {
+        if (CanTryCast(bot, CHI_WAVE))
+            return CHI_WAVE;
+        if (CanTryCast(bot, CHI_BURST))
+            return CHI_BURST;
+    }
+    if (NeedsMaintenance(ctx) && !HasAuraUp(ally, ZEN_SPHERE) && CanTryCast(bot, ZEN_SPHERE))
+        return ZEN_SPHERE;
+
+    if (ctx.manaPct < 70.0f && AuraStacks(bot, MANA_TEA_STACKS) >= 2)
+    {
+        if (CanTryCast(bot, MANA_TEA_GLYPHED))
+            return MANA_TEA_GLYPHED;
+        if (CanTryCast(bot, MANA_TEA))
+            return MANA_TEA;
+    }
+
+    // Expel Harm heals the monk and builds Chi for Uplift / Enveloping Mist.
+    if (ally == bot && chi < bot->GetMaxPower(POWER_CHI) && CanTryCast(bot, EXPEL_HARM))
+        return EXPEL_HARM;
+
     if (NeedsMaintenance(ctx) && CanTryCast(bot, SOOTHING_MIST))
         return SOOTHING_MIST;
 

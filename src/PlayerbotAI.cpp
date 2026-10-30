@@ -1331,7 +1331,7 @@ bool PlayerbotAI::HandleCombat()
 
     // Spec decides stance (e.g. Elemental ranged, Enhancement melee). Tanks always melee.
     // Healers in healer-dps mode plant like ranged — never chase into melee formation.
-    bool const ranged = GetCombatRole() != CombatRole::Tank
+    bool const ranged = GetCombatRole() != CombatRole::Tank && !IsMeleeHealerDps()
         && (IsRangedClass() || GetCombatRole() == CombatRole::Healer);
     bool const inMelee = _bot->IsWithinMeleeRange(target);
 
@@ -1583,7 +1583,7 @@ bool PlayerbotAI::HandleCombatCastOnly()
         return true;
     }
 
-    bool const ranged = GetCombatRole() == CombatRole::Healer
+    bool const ranged = (GetCombatRole() == CombatRole::Healer && !IsMeleeHealerDps())
         || (IsRangedClass() && GetCombatRole() != CombatRole::Tank);
     if (ranged)
     {
@@ -1940,9 +1940,15 @@ bool PlayerbotAI::IsHunterRanged() const
 bool PlayerbotAI::IsPureCaster() const
 {
     // Weapon swings / Attack() are useless — only cast spells.
-    if (!_bot || IsHunterRanged())
+    if (!_bot || IsHunterRanged() || IsMeleeHealerDps())
         return false;
     return IsRangedClass() || GetCombatRole() == CombatRole::Healer;
+}
+
+bool PlayerbotAI::IsMeleeHealerDps() const
+{
+    return _bot && _healerDps && _bot->getClass() == CLASS_MONK
+        && GetCombatRole() == CombatRole::Healer;
 }
 
 void PlayerbotAI::DebugCombat(std::string const& action)
@@ -3749,7 +3755,7 @@ bool PlayerbotAI::TryAvoidAoe()
     if (target && (!target->IsAlive() || !_bot->IsValidAttackTarget(target)))
         target = nullptr;
 
-    bool const melee = !IsRangedClass() && GetCombatRole() != CombatRole::Healer;
+    bool const melee = !IsRangedClass() && (GetCombatRole() != CombatRole::Healer || IsMeleeHealerDps());
 
     struct AngleTry
     {
@@ -4009,7 +4015,7 @@ bool PlayerbotAI::TryCombatFlee(Unit* focus)
         return false;
     if (GetCombatRole() == CombatRole::Tank && _tankMode)
         return false;
-    if (!IsRangedClass() && GetCombatRole() != CombatRole::Healer)
+    if (!IsRangedClass() && (GetCombatRole() != CombatRole::Healer || IsMeleeHealerDps()))
         return false;
     if (!WantsRangedKiting())
         return false;

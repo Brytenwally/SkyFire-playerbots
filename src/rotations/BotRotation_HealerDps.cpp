@@ -202,36 +202,105 @@ uint32 SelectRestorationDruidDps(Context const& ctx)
 uint32 SelectMistweaverDps(Context const& ctx)
 {
     Player* bot = ctx.bot;
+    Unit* target = ctx.target;
 
     enum Spells : uint32
     {
+        STANCE_WISE_SERPENT = 115070,
         JAB                 = 100780,
         TIGER_PALM          = 100787,
         BLACKOUT_KICK       = 100784,
         RISING_SUN_KICK     = 107428,
         SPINNING_CRANE_KICK = 101546,
-        FISTS_OF_FURY       = 113656,
+        EXPEL_HARM          = 115072,
+        CRACKLING_JADE_LIGHTNING = 117952,
         TOUCH_OF_DEATH      = 115080,
         DEATH_NOTE          = 121125,
+        CHI_WAVE            = 115098,
+        ZEN_SPHERE          = 124081,
+        CHI_BURST           = 123986,
+        MANA_TEA            = 115294,
+        MANA_TEA_GLYPHED    = 123761,
+        MANA_TEA_STACKS     = 115867,
+        TIGER_POWER         = 125359,
+        SERPENTS_ZEAL       = 127722,
+        MUSCLE_MEMORY       = 139597,
     };
 
+    // Every Mistweaver heal needs Wise Serpent, and Jab/Tiger Palm/Blackout Kick need a stance.
+    if (ReadyToShapeshift(bot, STANCE_WISE_SERPENT))
+        return STANCE_WISE_SERPENT;
+    if (!target)
+        return 0;
+
     uint32 const chi = bot->GetPower(POWER_CHI);
+    uint32 const maxChi = bot->GetMaxPower(POWER_CHI);
+    float const manaPct = bot->GetMaxPower(POWER_MANA)
+        ? (100.0f * float(bot->GetPower(POWER_MANA)) / float(bot->GetMaxPower(POWER_MANA))) : 100.0f;
+    float const hpPct = bot->GetMaxHealth()
+        ? (100.0f * float(bot->GetHealth()) / float(bot->GetMaxHealth())) : 100.0f;
+    bool const inMelee = bot->IsWithinMeleeRange(target);
+    bool const muscleMemory = HasAuraUp(bot, MUSCLE_MEMORY);
 
     if (HasAuraUp(bot, DEATH_NOTE) && CanTryCast(bot, TOUCH_OF_DEATH))
         return TOUCH_OF_DEATH;
 
+    uint32 const teaStacks = AuraStacks(bot, MANA_TEA_STACKS);
+    if (manaPct < 80.0f && teaStacks >= 2)
+    {
+        if (CanTryCast(bot, MANA_TEA_GLYPHED))
+            return MANA_TEA_GLYPHED;
+        if (CanTryCast(bot, MANA_TEA))
+            return MANA_TEA;
+    }
+
+    // Level 30 talents damage the target and heal the group.
+    if (CanTryCast(bot, CHI_WAVE))
+        return CHI_WAVE;
+    if (!HasAuraUp(bot, ZEN_SPHERE) && CanTryCast(bot, ZEN_SPHERE))
+        return ZEN_SPHERE;
+    if (CanTryCast(bot, CHI_BURST))
+        return CHI_BURST;
+
+    if (!inMelee)
+    {
+        if (CanTryCast(bot, CRACKLING_JADE_LIGHTNING))
+            return CRACKLING_JADE_LIGHTNING;
+        return 0;
+    }
+
+    // Tiger Power and Serpent's Zeal carry the fistweaving damage and healing.
+    if (chi >= 1 && AuraRemains(bot, TIGER_POWER) <= 3.0f && CanTryCast(bot, TIGER_PALM))
+        return TIGER_PALM;
+    if (chi >= 2 && AuraRemains(bot, SERPENTS_ZEAL) <= 3.0f && CanTryCast(bot, BLACKOUT_KICK))
+        return BLACKOUT_KICK;
+    if (chi >= 2 && CanTryCast(bot, RISING_SUN_KICK))
+        return RISING_SUN_KICK;
+
     if (ctx.enemies >= 3 && CanTryCast(bot, SPINNING_CRANE_KICK))
         return SPINNING_CRANE_KICK;
-    if (chi >= 3 && CanTryCast(bot, FISTS_OF_FURY))
-        return FISTS_OF_FURY;
-    if (CanTryCast(bot, RISING_SUN_KICK))
-        return RISING_SUN_KICK;
+
+    // Muscle Memory (from Jab) refunds mana on the next Tiger Palm / Blackout Kick.
+    if (muscleMemory)
+    {
+        if (chi >= 2 && CanTryCast(bot, BLACKOUT_KICK))
+            return BLACKOUT_KICK;
+        if (chi >= 1 && CanTryCast(bot, TIGER_PALM))
+            return TIGER_PALM;
+    }
+
+    if (chi < maxChi)
+    {
+        if (hpPct < 90.0f && CanTryCast(bot, EXPEL_HARM))
+            return EXPEL_HARM;
+        if (CanTryCast(bot, JAB))
+            return JAB;
+    }
+
     if (chi >= 2 && CanTryCast(bot, BLACKOUT_KICK))
         return BLACKOUT_KICK;
     if (chi >= 1 && CanTryCast(bot, TIGER_PALM))
         return TIGER_PALM;
-    if (CanTryCast(bot, JAB))
-        return JAB;
     return 0;
 }
 

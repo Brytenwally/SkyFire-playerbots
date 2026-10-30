@@ -174,6 +174,9 @@ namespace
             case 51713:  // Shadow Dance
             case 49222:  // Bone Shield
             case 115069: // Stance of the Sturdy Ox
+            case 115070: // Stance of the Wise Serpent
+            case 103985: // Stance of the Fierce Tiger
+            case 123761: // Mana Tea (glyphed)
             case 115295: // Guard
             case 119582: // Purifying Brew
             case 115308: // Elusive Brew
@@ -238,6 +241,7 @@ namespace
             case 20925:  // Sacred Shield
             case 114163: // Eternal Flame
             case 85673:  // Word of Glory
+            case 124081: // Zen Sphere
                 return true;
             default:
                 return IsSelfCast(spellId);
@@ -590,6 +594,10 @@ bool CanTryCast(Player* bot, uint32 spellId)
     if (!info)
         return false;
     if (info->StartRecoveryTime > 0 && bot->GetGlobalCooldownMgr().HasGlobalCooldown(info))
+        return false;
+    // Stance-locked spells (monk Jab outside a stance) have no matching SpellPower row and would
+    // pass the cost check, then fail in the core every tick.
+    if (info->CheckShapeshift(bot->GetShapeshiftForm()) != SpellCastResult::SPELL_CAST_OK)
         return false;
     if (!CanAffordSpell(bot, spellId))
         return false;
