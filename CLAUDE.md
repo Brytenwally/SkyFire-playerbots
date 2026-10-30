@@ -16,7 +16,7 @@ A port of the AzerothCore playerbots system (3.3.5 / WotLK) to **SkyFire 5.4.8
 | Repo | Role | Rules |
 | --- | --- | --- |
 | `Brytenwally/SkyFire-playerbots` (this repo) | The 5.4.8 module. Lives in the core at `modules/mod-playerbots`. | Where port work goes. |
-| `Brytenwally/SkyFire_548` | The 5.4.8 core, a fork of Project SkyFire. Has the module system and the bot hooks. | Change only for hooks the module cannot do without. |
+| `Brytenwally/SkyFire_548` | The 5.4.8 core, a fork of Project SkyFire. Has the module system and the bot hooks. | Change only for hooks the module cannot do without, or to fix core bugs the owner hits (e.g. database setup). |
 | `Brytenwally/SkyFire-build` | GitHub Actions workflow that builds Windows x64 binaries (core + this module, MySQL 8.0.44 client). | Has its own `CLAUDE.md`. |
 | `Brytenwally/mod-playerbots` (branch `coa`) | AzerothCore 3.3.5 playerbots, Conquest of Azeroth fork. | **Read-only reference.** Never build it, never change or push to it, never compile it against 5.4.8. Read it to see what a feature does, then rewrite it for 5.4.8 here. |
 
@@ -84,6 +84,13 @@ anonymous namespace; free functions there are file-local.
   Not ported: enchants/gems, consumables, bags, reputation, pet talents.
 - Alt bot = not in the random pool and not on an AccountPrefix account
   (`PlayerbotMgr::IsAltBot`).
+
+## Core fixes made in SkyFire_548
+
+- Database setup (`src/server/shared/Database/DatabaseSetup/`): updates the
+  base SQL already records in `skyfire_db_updates` are skipped instead of
+  re-run (fresh characters DB failed with "Duplicate entry
+  'characters-2026_08_03_characters_00.sql'").
 
 ## Building and checking
 
