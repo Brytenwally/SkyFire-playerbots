@@ -30,6 +30,7 @@
 #include "GroupReference.h"
 #include "Item.h"
 #include "ItemPrototype.h"
+#include "ItemScalingHooks.h"
 #include "LFGMgr.h"
 #include "LootMgr.h"
 #include "Map.h"
@@ -4773,7 +4774,14 @@ bool PlayerbotAI::IsLootUpgrade(Player* bot, ItemTemplate const* proto)
     if (proto->InventoryType == INVTYPE_2HWEAPON && !bot->CanTitanGrip())
         worn += WornValue(bot, specId, EQUIPMENT_SLOT_OFFHAND, capBoost);
 
-    float const candidate = BotEnchants::GearValue(bot, specId, proto, nullptr, slot, capBoost);
+    // With Destiny Weaver item scaling the bot would get the item raised to its level:
+    // roll on that version (ItemScalingHooks::LootPreview), not the base one.
+    ItemTemplate const* rolled = proto;
+    if (ItemScalingHooks::LootPreviewFn preview = ItemScalingHooks::LootPreview.load(std::memory_order_relaxed))
+        if (ItemTemplate const* raised = preview(bot, proto))
+            rolled = raised;
+
+    float const candidate = BotEnchants::GearValue(bot, specId, rolled, nullptr, slot, capBoost);
     if (candidate <= 0.0f)
         return false;
     return worn <= 0.0f || candidate >= worn * (1.0f + sPlayerbotMgr->GetLootNeedUpgrade());

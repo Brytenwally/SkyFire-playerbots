@@ -148,8 +148,9 @@ anonymous namespace; free functions there are file-local.
   the worn piece (weaker of two ring/trinket/dual-wield slots; MH+OH for a two-hander) by
   `Playerbots.Loot.NeedUpgradePercent` (2%) via `BotEnchants::GearValue`; stats below a
   must-reach cap count `Playerbots.Loot.CapBoost` (1.15, not maintenance's 10, so casters do
-  not need tank items for hit). Greed on everything else. The item is valued at its base
-  level (a Destiny Weaver raise happens after it is won).
+  not need tank items for hit). Greed on everything else. With Destiny Weaver item scaling
+  the bot rolls on the raised version (core `ItemScalingHooks::LootPreview`), since the raise
+  itself happens only once the roll is won.
 - `quests all|completed|incompleted|summary`: `PlayerbotAI::HandleQuestListCommand`
   (AC ListQuestsAction, plus objective progress). Bare `quests` stays
   SkyFire's accept / turn in. AC's `travel` variants need TravelMgr (absent).
