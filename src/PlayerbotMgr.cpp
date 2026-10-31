@@ -1996,15 +1996,110 @@ namespace
         GearRoll _previous;
     };
 
-    std::string PvpStatClause()
+    // Gear candidates come from the item templates the core already holds in
+    // memory (ObjectMgr::LoadItemTemplates at startup) instead of SQL: the
+    // queries scanned item_template on the world thread, dozens per bot, and
+    // froze the server for seconds per init. The callers' WHERE pieces are
+    // "field=N" / "field IN (a,b)" terms joined by AND on class, subclass and
+    // InventoryType; they are parsed once and matched here.
+    struct ItemClause
     {
-        std::ostringstream c;
-        c << '(';
-        for (uint32 i = 1; i <= MAX_ITEM_PROTO_STATS; ++i)
-            c << (i > 1 ? " OR " : "") << "stat_type" << i << " IN ("
-              << uint32(ITEM_MOD_RESILIENCE_RATING) << ',' << uint32(ITEM_MOD_PVP_POWER) << ')';
-        c << ')';
-        return c.str();
+        std::vector<uint32> classes, subclasses, inventoryTypes; // empty = any
+    };
+
+    std::unordered_map<std::string, ItemClause> g_itemClauseCache;
+
+    ItemClause const& ParseItemClause(std::string const& where)
+    {
+        if (auto it = g_itemClauseCache.find(where); it != g_itemClauseCache.end())
+            return it->second;
+
+        ItemClause clause;
+        std::string rest = where;
+        while (!rest.empty())
+        {
+            size_t const cut = rest.find(" AND ");
+            std::string term = rest.substr(0, cut);
+            rest = cut == std::string::npos ? std::string() : rest.substr(cut + 5);
+
+            std::string field;
+            std::vector<uint32> values;
+            size_t const in = term.find(" IN (");
+            size_t const eq = term.find('=');
+            if (in != std::string::npos)
+            {
+                field = term.substr(0, in);
+                std::string list = term.substr(in + 5);
+                std::replace(list.begin(), list.end(), ',', ' ');
+                std::replace(list.begin(), list.end(), ')', ' ');
+                std::istringstream values_in(list);
+                uint32 v;
+                while (values_in >> v)
+                    values.push_back(v);
+            }
+            else if (eq != std::string::npos)
+            {
+                field = term.substr(0, eq);
+                values.push_back(uint32(std::strtoul(term.c_str() + eq + 1, nullptr, 10)));
+            }
+
+            if (field == "class")
+                clause.classes = values;
+            else if (field == "subclass")
+                clause.subclasses = values;
+            else if (field == "InventoryType")
+                clause.inventoryTypes = values;
+            else if (!term.empty())
+                SF_LOG_ERROR("modules", "[mod-playerbots] Gear filter: unknown term '%s' ignored.", term.c_str());
+        }
+        return g_itemClauseCache.emplace(where, clause).first->second;
+    }
+
+    bool InList(std::vector<uint32> const& list, uint32 value)
+    {
+        return list.empty() || std::find(list.begin(), list.end(), value) != list.end();
+    }
+
+    // Item templates by InventoryType, built on first use (every gear clause names one).
+    std::unordered_map<uint32, std::vector<ItemTemplate const*>> g_itemsByInventoryType;
+    std::vector<ItemTemplate const*> g_allGearItems;
+
+    void BuildItemIndex()
+    {
+        if (!g_allGearItems.empty())
+            return;
+        ItemTemplateContainer const* store = sObjectMgr->GetItemTemplateStore();
+        if (!store)
+            return;
+        for (auto const& pair : *store)
+        {
+            ItemTemplate const& proto = pair.second;
+            if (proto.Class != ITEM_CLASS_WEAPON && proto.Class != ITEM_CLASS_ARMOR)
+                continue;
+            g_allGearItems.push_back(&proto);
+            g_itemsByInventoryType[proto.InventoryType].push_back(&proto);
+        }
+    }
+
+    // Designer / QA / art / monster templates (RequiredLevel 1, junk names); the
+    // same names the SQL version left out (LIKE is case-insensitive there too).
+    bool IsJunkTemplateName(std::string name)
+    {
+        std::transform(name.begin(), name.end(), name.begin(),
+            [](unsigned char c) { return char(std::tolower(c)); });
+        auto startsWith = [&name](char const* prefix) { return name.rfind(prefix, 0) == 0; };
+        auto contains = [&name](char const* part) { return name.find(part) != std::string::npos; };
+        return startsWith("qa") || contains("test") || startsWith("zg ") || contains("raid d0")
+            || contains(" d0") || startsWith("monster -") || startsWith("art template")
+            || startsWith("artwork ");
+    }
+
+    bool HasStat(ItemTemplate const* proto, uint32 stat)
+    {
+        for (uint8 i = 0; i < MAX_ITEM_PROTO_STATS; ++i)
+            if (proto->ItemStat[i].ItemStatType == stat)
+                return true;
+        return false;
     }
 
     std::vector<uint32> QueryItemEntries(Player* bot, std::string const& where, uint32 primaryStat,
@@ -2018,7 +2113,6 @@ namespace
         int qualityMin = std::max(0, std::min(minQuality, qualityCap));
 
         std::ostringstream key;
-        // v3: broader QA/template bans + rare-low-ilvl reject + min ItemLevel floor.
         key << "v4|" << where << '|' << level << '|' << classBit << '|' << raceBit << '|'
             << minReq << '|' << qualityMin << '|' << qualityCap << '|' << primaryStat
             << '|' << exclude << '|' << uint32(g_gearPool) << '|' << g_gearRoll.maxItemLevel;
@@ -2026,61 +2120,76 @@ namespace
         if (auto it = g_itemQueryCache.find(cacheKey); it != g_itemQueryCache.end())
             return it->second;
 
-        std::ostringstream q;
-        q << "SELECT entry FROM item_template WHERE " << where
-          << " AND RequiredLevel <= " << level
-          << " AND RequiredLevel >= " << minReq
-          << " AND Quality BETWEEN " << qualityMin << " AND " << qualityCap
-          << " AND duration = 0 AND startquest = 0"
-          // Designer / QA / art / monster templates (RequiredLevel 1, junk names).
-          << " AND name NOT LIKE 'QA%'"
-          << " AND name NOT LIKE '%Test%'"
-          << " AND name NOT LIKE 'ZG %'"
-          << " AND name NOT LIKE '%Raid D0%'"
-          << " AND name NOT LIKE '% D0%'"
-          << " AND name NOT LIKE 'Monster -%'"
-          << " AND name NOT LIKE 'Art Template%'"
-          << " AND name NOT LIKE 'Artwork %'"
-          << " AND (Flags & " << uint32(ITEM_PROTO_FLAG_DEPRECATED) << ") = 0"
-          // Rare+ with tiny ilvl is almost always a leftover template (ZG/Icecrown stubs).
-          << " AND NOT (Quality >= " << int(ITEM_QUALITY_RARE)
-          << " AND ItemLevel < 10 AND RequiredLevel <= 10)"
-          // Soft ilvl ceiling so low-req raid gear cannot dominate the pool.
-          << " AND ItemLevel <= " << (level * 8u + 40u)
-          // Prefer real level-scaled gear over ilvl-1 stubs.
-          << " AND ItemLevel >= " << (level > 5 ? (level > 10 ? level - 5 : 3) : 1)
-          << " AND (AllowableClass = -1 OR (AllowableClass & " << classBit << "))"
-          << " AND (AllowableRace = -1 OR (AllowableRace & " << raceBit << "))";
+        BuildItemIndex();
+        ItemClause const& clause = ParseItemClause(where);
 
+        // Every clause names its InventoryType: only those buckets are scanned.
+        std::vector<std::vector<ItemTemplate const*> const*> buckets;
+        if (clause.inventoryTypes.empty())
+            buckets.push_back(&g_allGearItems);
+        else
+            for (uint32 type : clause.inventoryTypes)
+                if (auto it = g_itemsByInventoryType.find(type); it != g_itemsByInventoryType.end())
+                    buckets.push_back(&it->second);
+
+        // Soft ilvl ceiling so low-req raid gear cannot dominate the pool; floor to
+        // prefer real level-scaled gear over ilvl-1 stubs.
+        uint32 maxItemLevel = level * 8u + 40u;
         if (g_gearRoll.maxItemLevel)
-            q << " AND ItemLevel <= " << g_gearRoll.maxItemLevel;
+            maxItemLevel = std::min(maxItemLevel, g_gearRoll.maxItemLevel);
+        uint32 const minItemLevel = level > 5 ? (level > 10 ? level - 5 : 3) : 1;
 
-        if (exclude)
-            q << " AND entry <> " << exclude;
-
-        if (g_gearPool == GearPool::PveOnly)
-            q << " AND NOT " << PvpStatClause();
-        else if (g_gearPool == GearPool::PvpOnly)
-            q << " AND " << PvpStatClause();
-
-        if (primaryStat)
-            q << " AND (stat_type1=" << primaryStat << " OR stat_type2=" << primaryStat
-              << " OR stat_type3=" << primaryStat << " OR stat_type4=" << primaryStat
-              << " OR stat_type5=" << primaryStat << " OR stat_type6=" << primaryStat
-              << " OR stat_type7=" << primaryStat << " OR stat_type8=" << primaryStat
-              << " OR stat_type9=" << primaryStat << " OR stat_type10=" << primaryStat << ")";
+        std::vector<ItemTemplate const*> found;
+        for (auto const* bucket : buckets)
+        {
+            for (ItemTemplate const* proto : *bucket)
+            {
+                if (!InList(clause.classes, proto->Class) || !InList(clause.subclasses, proto->SubClass)
+                    || !InList(clause.inventoryTypes, proto->InventoryType))
+                    continue;
+                if (proto->RequiredLevel > level || proto->RequiredLevel < minReq)
+                    continue;
+                if (int(proto->Quality) < qualityMin || int(proto->Quality) > qualityCap)
+                    continue;
+                if (proto->Duration || proto->StartQuest || (proto->Flags & ITEM_PROTO_FLAG_DEPRECATED))
+                    continue;
+                // Rare+ with tiny ilvl is almost always a leftover template (ZG/Icecrown stubs).
+                if (proto->Quality >= ITEM_QUALITY_RARE && proto->ItemLevel < 10 && proto->RequiredLevel <= 10)
+                    continue;
+                if (proto->ItemLevel > maxItemLevel || proto->ItemLevel < minItemLevel)
+                    continue;
+                if (!(proto->AllowableClass & classBit) || !(proto->AllowableRace & raceBit))
+                    continue;
+                if (exclude && proto->ItemId == exclude)
+                    continue;
+                bool const pvp = BotGearSets::IsPvpItem(proto);
+                if ((g_gearPool == GearPool::PveOnly && pvp) || (g_gearPool == GearPool::PvpOnly && !pvp))
+                    continue;
+                if (primaryStat && !HasStat(proto, primaryStat))
+                    continue;
+                if (IsJunkTemplateName(proto->Name1))
+                    continue;
+                found.push_back(proto);
+            }
+        }
 
         // Prefer items the bot actually leveled into; only then pick the strongest.
-        q << " ORDER BY RequiredLevel DESC, ItemLevel DESC LIMIT 25";
+        constexpr size_t kLimit = 25;
+        auto better = [](ItemTemplate const* a, ItemTemplate const* b)
+        {
+            if (a->RequiredLevel != b->RequiredLevel)
+                return a->RequiredLevel > b->RequiredLevel;
+            if (a->ItemLevel != b->ItemLevel)
+                return a->ItemLevel > b->ItemLevel;
+            return a->ItemId < b->ItemId;
+        };
+        size_t const keep = std::min(found.size(), kLimit);
+        std::partial_sort(found.begin(), found.begin() + keep, found.end(), better);
 
         std::vector<uint32> entries;
-        if (QueryResult result = WorldDatabase.Query(q.str().c_str()))
-        {
-            do
-            {
-                entries.push_back(result->Fetch()[0].GetUInt32());
-            } while (result->NextRow());
-        }
+        entries.reserve(keep);
+        for (size_t i = 0; i < keep; ++i)
+            entries.push_back(found[i]->ItemId);
         g_itemQueryCache.emplace(cacheKey, entries);
         return entries;
     }
