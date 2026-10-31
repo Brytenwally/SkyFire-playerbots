@@ -11,7 +11,8 @@
 * each rank down; stats on one rank share it. Unlisted stats weigh 0.
 * Per point, primary stats (Str/Agi/Int, spell power) count double and
 * stamina 1.5 times a secondary rating, as MoP gems give 160 primary,
-* 240 stamina or 320 rating. Hit and expertise caps are not modelled.
+* 240 stamina or 320 rating. Caps (hit, expertise, spell hit, haste soft caps
+* and breakpoints) are in CapsFor; autogear values each piece against them.
 */
 
 #include "BotStatWeights.h"
@@ -127,6 +128,84 @@ namespace
         }
     }
 
+    // Stat caps from the same Wowhead page. Past a hard cap a point is nearly worthless
+    // (kOverCap of its weight); past a soft cap or haste breakpoint it drops to about
+    // the next stat down the list.
+    constexpr float kOverCap = 0.05f;
+    constexpr uint32 Bit(BotStat stat) { return 1u << stat; }
+
+    BotStatCap Cap(uint32 mask, CombatRating rating, float pct, float factor)
+    {
+        BotStatCap cap;
+        cap.statMask = mask;
+        cap.rating = uint8(rating);
+        cap.tierCount = 1;
+        cap.pct[0] = pct;
+        cap.factorAbove[0] = factor;
+        return cap;
+    }
+
+    BotStatCap Cap2(uint32 mask, CombatRating rating, float pct1, float factor1, float pct2, float factor2)
+    {
+        BotStatCap cap = Cap(mask, rating, pct1, factor1);
+        cap.tierCount = 2;
+        cap.pct[1] = pct2;
+        cap.factorAbove[1] = factor2;
+        return cap;
+    }
+
+    std::vector<BotStatCap> CapsFor(uint32 specId)
+    {
+        uint32 const hit = Bit(BOT_STAT_HIT);
+        uint32 const exp = Bit(BOT_STAT_EXPERTISE);
+        uint32 const spi = Bit(BOT_STAT_SPIRIT);
+        uint32 const haste = Bit(BOT_STAT_HASTE);
+        switch (specId)
+        {
+            // Melee: 7.5% hit, 7.5% expertise.
+            case 251: case 252: case 103: case 269: case 70:
+            case 259: case 260: case 261: case 263: case 71:
+                return { Cap(hit, CombatRating::CR_HIT_MELEE, 7.5f, kOverCap),
+                         Cap(exp, CombatRating::CR_EXPERTISE, 7.5f, kOverCap) };
+            // Hunters: the same caps for ranged.
+            case 253: case 254: case 255:
+                return { Cap(hit, CombatRating::CR_HIT_RANGED, 7.5f, kOverCap),
+                         Cap(exp, CombatRating::CR_EXPERTISE, 7.5f, kOverCap) };
+            // Fury: hit past 7.5% still lands white hits up to 26.5%, as the last priority.
+            case 72:
+                return { Cap2(hit, CombatRating::CR_HIT_MELEE, 7.5f, 0.3f, 26.5f, kOverCap),
+                         Cap(exp, CombatRating::CR_EXPERTISE, 7.5f, kOverCap) };
+            // Blood (balanced): expertise past 7.5% is the last priority, up to 15%.
+            case 250:
+                return { Cap(hit, CombatRating::CR_HIT_MELEE, 7.5f, kOverCap),
+                         Cap2(exp, CombatRating::CR_EXPERTISE, 7.5f, 0.3f, 15.0f, kOverCap) };
+            // Protection warrior and paladin, Guardian, Brewmaster: expertise to the 15% hard cap.
+            case 73: case 66: case 104: case 268:
+                return { Cap(hit, CombatRating::CR_HIT_MELEE, 7.5f, kOverCap),
+                         Cap(exp, CombatRating::CR_EXPERTISE, 15.0f, kOverCap) };
+            // Balance: hit, spirit and expertise fill 15% spell hit; haste soft cap at 24.22%
+            // (GCD at 1s), past which it falls just below crit.
+            case 102:
+                return { Cap(hit | exp | spi, CombatRating::CR_HIT_SPELL, 15.0f, kOverCap),
+                         Cap(haste, CombatRating::CR_HASTE_SPELL, 24.22f, 0.9f) };
+            // Shadow, Elemental: hit, spirit and expertise fill 15% spell hit.
+            case 258: case 262:
+                return { Cap(hit | exp | spi, CombatRating::CR_HIT_SPELL, 15.0f, kOverCap) };
+            // Mages, warlocks: hit and expertise fill 15% spell hit.
+            case 62: case 63: case 64: case 265: case 266: case 267:
+                return { Cap(hit | exp, CombatRating::CR_HIT_SPELL, 15.0f, kOverCap) };
+            // Healer haste breakpoints (first one of the tier): past it haste drops to last.
+            case 105: // Restoration druid, 3043 rating at 90
+                return { Cap(haste, CombatRating::CR_HASTE_SPELL, 7.16f, 0.85f) };
+            case 264: // Restoration shaman, 3379 rating at 90
+                return { Cap(haste, CombatRating::CR_HASTE_SPELL, 7.95f, 0.8f) };
+            case 65:  // Holy paladin, Eternal Flame 8.25%
+                return { Cap(haste, CombatRating::CR_HASTE_SPELL, 8.25f, 0.9f) };
+            default:
+                return {};
+        }
+    }
+
     float g_rankStep = 0.05f;
     std::map<uint32, BotStatWeights> g_cache;
 
@@ -166,40 +245,47 @@ namespace
             weights.perPoint[i] = rankWeight[i] * PointFactor(BotStat(i));
         if (!rankWeight[BOT_STAT_ATTACK_POWER])
             weights.perPoint[BOT_STAT_ATTACK_POWER] = physical * 1.0f;
+        weights.caps = CapsFor(specId);
         return weights;
+    }
+}
+
+BotStat StatForItemMod(uint32 itemMod)
+{
+    switch (itemMod)
+    {
+        case ITEM_MOD_AGILITY:                  return BOT_STAT_AGILITY;
+        case ITEM_MOD_STRENGTH:                 return BOT_STAT_STRENGTH;
+        case ITEM_MOD_INTELLECT:                return BOT_STAT_INTELLECT;
+        case ITEM_MOD_SPIRIT:                   return BOT_STAT_SPIRIT;
+        case ITEM_MOD_STAMINA:                  return BOT_STAT_STAMINA;
+        case ITEM_MOD_DODGE_RATING:             return BOT_STAT_DODGE;
+        case ITEM_MOD_PARRY_RATING:             return BOT_STAT_PARRY;
+        case ITEM_MOD_HIT_MELEE_RATING:
+        case ITEM_MOD_HIT_RANGED_RATING:
+        case ITEM_MOD_HIT_SPELL_RATING:
+        case ITEM_MOD_HIT_RATING:               return BOT_STAT_HIT;
+        case ITEM_MOD_CRIT_MELEE_RATING:
+        case ITEM_MOD_CRIT_RANGED_RATING:
+        case ITEM_MOD_CRIT_SPELL_RATING:
+        case ITEM_MOD_CRIT_RATING:              return BOT_STAT_CRIT;
+        case ITEM_MOD_HASTE_MELEE_RATING:
+        case ITEM_MOD_HASTE_RANGED_RATING:
+        case ITEM_MOD_HASTE_SPELL_RATING:
+        case ITEM_MOD_HASTE_RATING:             return BOT_STAT_HASTE;
+        case ITEM_MOD_EXPERTISE_RATING:         return BOT_STAT_EXPERTISE;
+        case ITEM_MOD_MASTERY_RATING:           return BOT_STAT_MASTERY;
+        case ITEM_MOD_SPELL_POWER:              return BOT_STAT_SPELL_POWER;
+        case ITEM_MOD_ATTACK_POWER:
+        case ITEM_MOD_RANGED_ATTACK_POWER:      return BOT_STAT_ATTACK_POWER;
+        default:                                return BOT_STAT_MAX;
     }
 }
 
 float BotStatWeights::ForItemMod(uint32 itemMod) const
 {
-    switch (itemMod)
-    {
-        case ITEM_MOD_AGILITY:                  return Get(BOT_STAT_AGILITY);
-        case ITEM_MOD_STRENGTH:                 return Get(BOT_STAT_STRENGTH);
-        case ITEM_MOD_INTELLECT:                return Get(BOT_STAT_INTELLECT);
-        case ITEM_MOD_SPIRIT:                   return Get(BOT_STAT_SPIRIT);
-        case ITEM_MOD_STAMINA:                  return Get(BOT_STAT_STAMINA);
-        case ITEM_MOD_DODGE_RATING:             return Get(BOT_STAT_DODGE);
-        case ITEM_MOD_PARRY_RATING:             return Get(BOT_STAT_PARRY);
-        case ITEM_MOD_HIT_MELEE_RATING:
-        case ITEM_MOD_HIT_RANGED_RATING:
-        case ITEM_MOD_HIT_SPELL_RATING:
-        case ITEM_MOD_HIT_RATING:               return Get(BOT_STAT_HIT);
-        case ITEM_MOD_CRIT_MELEE_RATING:
-        case ITEM_MOD_CRIT_RANGED_RATING:
-        case ITEM_MOD_CRIT_SPELL_RATING:
-        case ITEM_MOD_CRIT_RATING:              return Get(BOT_STAT_CRIT);
-        case ITEM_MOD_HASTE_MELEE_RATING:
-        case ITEM_MOD_HASTE_RANGED_RATING:
-        case ITEM_MOD_HASTE_SPELL_RATING:
-        case ITEM_MOD_HASTE_RATING:             return Get(BOT_STAT_HASTE);
-        case ITEM_MOD_EXPERTISE_RATING:         return Get(BOT_STAT_EXPERTISE);
-        case ITEM_MOD_MASTERY_RATING:           return Get(BOT_STAT_MASTERY);
-        case ITEM_MOD_SPELL_POWER:              return Get(BOT_STAT_SPELL_POWER);
-        case ITEM_MOD_ATTACK_POWER:
-        case ITEM_MOD_RANGED_ATTACK_POWER:      return Get(BOT_STAT_ATTACK_POWER);
-        default:                                return 0.0f;
-    }
+    BotStat const stat = StatForItemMod(itemMod);
+    return stat == BOT_STAT_MAX ? 0.0f : Get(stat);
 }
 
 float BotStatWeights::ForCombatRating(uint32 rating) const

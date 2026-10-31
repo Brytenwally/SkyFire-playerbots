@@ -2749,12 +2749,13 @@ namespace
     // GearValue) or, with Playerbots.AutoGear.StatWeights = 0, item level halved
     // for a piece that carries another primary stat but not the one the spec
     // wants. Items the bot cannot use score below an empty slot.
-    float GearScore(Player* bot, ItemTemplate const* proto, uint32 primaryStat, Item* item = nullptr)
+    float GearScore(Player* bot, ItemTemplate const* proto, uint32 primaryStat, Item* item = nullptr,
+        uint8 slot = NULL_SLOT)
     {
         if (!proto || bot->CanUseItem(proto) != EQUIP_ERR_OK)
             return -1.0f;
         if (g_gearRoll.weighted)
-            return BotEnchants::GearValue(bot, g_gearRoll.specId, proto, item);
+            return BotEnchants::GearValue(bot, g_gearRoll.specId, proto, item, slot);
 
         float const score = float(proto->ItemLevel);
         if (!primaryStat)
@@ -2809,7 +2810,7 @@ namespace
     {
         Item* worn = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
         uint32 const wornEntry = worn ? worn->GetEntry() : 0;
-        float const wornScore = worn ? GearScore(bot, worn->GetTemplate(), primaryStat, worn) : -1.0f;
+        float const wornScore = worn ? GearScore(bot, worn->GetTemplate(), primaryStat, worn, slot) : -1.0f;
 
         uint32 const passStats[2] = { primaryStat, 0 };
         int const passes = primaryStat && g_gearPool != GearPool::PvpOnly ? 2 : 1;
@@ -2827,7 +2828,7 @@ namespace
             {
                 if (entry == wornEntry)
                     continue;
-                float const score = GearScore(bot, sObjectMgr->GetItemTemplate(entry), primaryStat);
+                float const score = GearScore(bot, sObjectMgr->GetItemTemplate(entry), primaryStat, nullptr, slot);
                 if (score <= bestScore)
                     continue;
                 uint16 dest = 0;
@@ -2893,7 +2894,7 @@ namespace
                 // autogear reset: best weighted piece first, no random pick.
                 std::vector<std::pair<float, uint32>> scored;
                 for (uint32 entry : entries)
-                    scored.emplace_back(GearScore(bot, sObjectMgr->GetItemTemplate(entry), primaryStat), entry);
+                    scored.emplace_back(GearScore(bot, sObjectMgr->GetItemTemplate(entry), primaryStat, nullptr, slot), entry);
                 std::stable_sort(scored.begin(), scored.end(),
                     [](auto const& a, auto const& b) { return a.first > b.first; });
                 for (size_t i = 0; i < scored.size(); ++i)

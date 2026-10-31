@@ -10,6 +10,9 @@
 
 #include "Define.h"
 
+#include <array>
+#include <vector>
+
 enum BotStat
 {
     BOT_STAT_STRENGTH,
@@ -29,9 +32,27 @@ enum BotStat
     BOT_STAT_MAX
 };
 
+using BotStatVector = std::array<float, BOT_STAT_MAX>;
+
+// ITEM_MOD_* to the stat it counts as; BOT_STAT_MAX for stats no spec weighs.
+BotStat StatForItemMod(uint32 itemMod);
+
+// A stat cap: the stats in statMask (rating units, spirit 1:1) fill one pool measured
+// in percent of the combat rating `rating`. Past pct[i] each point is worth
+// factorAbove[i] times its usual weight.
+struct BotStatCap
+{
+    uint32 statMask = 0;
+    uint8 rating = 0;
+    uint8 tierCount = 0;
+    float pct[2] = {};
+    float factorAbove[2] = {};
+};
+
 struct BotStatWeights
 {
     float perPoint[BOT_STAT_MAX] = {};
+    std::vector<BotStatCap> caps;
 
     float Get(BotStat stat) const { return perPoint[stat]; }
     // ITEM_MOD_* (item stats, gem and enchant stats); 0 for stats the spec ignores.

@@ -34,6 +34,10 @@
 
 namespace
 {
+    // Defined with the gear valuation below.
+    void AddEnchantStats(BotStatVector& stats, SpellItemEnchantmentEntry const* enchant, float scale);
+    float ValueStats(Player* bot, BotStatWeights const& weights, BotStatVector const& stats, uint8 slot);
+
     // Share of a proc's stats counted, a rough average uptime.
     constexpr float kProcUptime = 0.35f;
     constexpr uint32 kNormalGemColors = SOCKET_COLOR_RED | SOCKET_COLOR_YELLOW | SOCKET_COLOR_BLUE;
@@ -574,13 +578,28 @@ BotEnchants::Result BotEnchants::Apply(Player* bot, uint32 specId, bool enchants
 
     BotStatWeights const& weights = BotStatWeightTable::For(specId, bot->getClass());
 
+    // A gem's score is its weighted stats plus its equip effects (meta gems). With caps,
+    // the stats are valued against the bot's ratings as they stand before each item is
+    // socketed, so hit or expertise gems stop once the cap is reached.
+    std::vector<GemCandidate> const& candidates = GemCandidates();
     std::vector<float> gemScores;
+    std::vector<float> gemEffects;
+    std::vector<BotStatVector> gemStats;
     if (gems)
     {
-        std::vector<GemCandidate> const& candidates = GemCandidates();
         gemScores.reserve(candidates.size());
         for (GemCandidate const& gem : candidates)
-            gemScores.push_back(ScoreEnchant(gem.enchant, bot, weights));
+        {
+            BotStatVector stats{};
+            AddEnchantStats(stats, gem.enchant, 1.0f);
+            float const total = ScoreEnchant(gem.enchant, bot, weights);
+            float plain = 0.0f;
+            for (uint32 s = 0; s < BOT_STAT_MAX; ++s)
+                plain += stats[s] * weights.Get(BotStat(s));
+            gemScores.push_back(total);
+            gemEffects.push_back(total - plain);
+            gemStats.push_back(stats);
+        }
     }
 
     for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
@@ -591,7 +610,12 @@ BotEnchants::Result BotEnchants::Apply(Player* bot, uint32 specId, bool enchants
         if (enchants)
             result.enchants += EnchantGear(bot, item, weights, replaceEnchants);
         if (gems)
+        {
+            if (!weights.caps.empty())
+                for (size_t i = 0; i < candidates.size(); ++i)
+                    gemScores[i] = gemEffects[i] + ValueStats(bot, weights, gemStats[i], NULL_SLOT);
             result.gems += GemItem(bot, item, weights, gemScores);
+        }
     }
     return result;
 }
@@ -625,12 +649,28 @@ namespace
         return table;
     }
 
+    void AddItemMod(BotStatVector& stats, uint32 itemMod, float amount)
+    {
+        BotStat const stat = StatForItemMod(itemMod);
+        if (stat != BOT_STAT_MAX)
+            stats[stat] += amount;
+    }
+
+    // The stat effects of an enchant (gem, socket bonus, enchant, random property).
+    void AddEnchantStats(BotStatVector& stats, SpellItemEnchantmentEntry const* enchant, float scale)
+    {
+        if (!enchant)
+            return;
+        for (uint8 i = 0; i < MAX_ITEM_ENCHANTMENT_EFFECTS; ++i)
+            if (enchant->type[i] == ITEM_ENCHANTMENT_TYPE_STAT)
+                AddItemMod(stats, enchant->spellid[i], float(enchant->amount[i]) * scale);
+    }
+
     // A random suffix's stats have no amount: allocation * the item's suffix factor.
-    float ScoreSuffix(ItemRandomSuffixEntry const* suffix, uint32 suffixFactor, BotStatWeights const& weights)
+    void AddSuffixStats(BotStatVector& stats, ItemRandomSuffixEntry const* suffix, uint32 suffixFactor, float scale)
     {
         if (!suffix)
-            return 0.0f;
-        float score = 0.0f;
+            return;
         for (uint8 k = 0; k < 5; ++k)
         {
             SpellItemEnchantmentEntry const* enchant = sSpellItemEnchantmentStore.LookupEntry(suffix->enchant_id[k]);
@@ -642,54 +682,179 @@ namespace
                     continue;
                 uint32 const amount = enchant->amount[i] ? enchant->amount[i]
                     : suffix->prefix[k] * suffixFactor / 10000;
-                score += weights.ForItemMod(enchant->spellid[i]) * float(amount);
+                AddItemMod(stats, enchant->spellid[i], float(amount) * scale);
             }
         }
-        return score;
     }
 
-    float ScoreRandomProperty(uint32 propertyId, Player* bot, BotStatWeights const& weights)
+    void AddRandomPropertyStats(BotStatVector& stats, uint32 propertyId, float scale)
     {
-        ItemRandomPropertiesEntry const* property = sItemRandomPropertiesStore.LookupEntry(propertyId);
-        if (!property)
-            return 0.0f;
-        float score = 0.0f;
-        for (uint8 i = 0; i < MAX_ITEM_ENCHANTMENT_EFFECTS; ++i)
-            score += ScoreEnchant(sSpellItemEnchantmentStore.LookupEntry(property->enchant_id[i]), bot, weights);
-        return score;
+        if (ItemRandomPropertiesEntry const* property = sItemRandomPropertiesStore.LookupEntry(propertyId))
+            for (uint8 i = 0; i < MAX_ITEM_ENCHANTMENT_EFFECTS; ++i)
+                AddEnchantStats(stats, sSpellItemEnchantmentStore.LookupEntry(property->enchant_id[i]), scale);
     }
 
     // Worn item: the stats it rolled. Candidate: the average of what it can roll.
-    float ScoreRandomStats(Player* bot, ItemTemplate const* proto, Item* item, BotStatWeights const& weights)
+    void AddRandomStats(BotStatVector& stats, ItemTemplate const* proto, Item* item)
     {
         if (item)
         {
             int32 const id = item->GetItemRandomPropertyId();
             if (id > 0)
-                return ScoreRandomProperty(uint32(id), bot, weights);
-            if (id < 0)
-                return ScoreSuffix(sItemRandomSuffixStore.LookupEntry(uint32(-id)), item->GetItemSuffixFactor(), weights);
-            return 0.0f;
+                AddRandomPropertyStats(stats, uint32(id), 1.0f);
+            else if (id < 0)
+                AddSuffixStats(stats, sItemRandomSuffixStore.LookupEntry(uint32(-id)), item->GetItemSuffixFactor(), 1.0f);
+            return;
         }
 
         uint32 const group = proto->RandomProperty ? uint32(proto->RandomProperty) : uint32(proto->RandomSuffix);
         if (!group)
-            return 0.0f;
+            return;
         auto const& table = RandomEnchantTable();
         auto it = table.find(group);
         if (it == table.end())
-            return 0.0f;
-        uint32 const suffixFactor = proto->RandomSuffix ? GenerateEnchSuffixFactor(proto->ItemId) : 0;
-        float total = 0.0f;
+            return;
         float chances = 0.0f;
         for (RandomEnchantChance const& roll : it->second)
-        {
-            float const score = proto->RandomProperty ? ScoreRandomProperty(roll.enchant, bot, weights)
-                : ScoreSuffix(sItemRandomSuffixStore.LookupEntry(roll.enchant), suffixFactor, weights);
-            total += score * roll.chance;
             chances += roll.chance;
+        if (chances <= 0.0f)
+            return;
+        uint32 const suffixFactor = proto->RandomSuffix ? GenerateEnchSuffixFactor(proto->ItemId) : 0;
+        for (RandomEnchantChance const& roll : it->second)
+        {
+            float const share = roll.chance / chances;
+            if (proto->RandomProperty)
+                AddRandomPropertyStats(stats, roll.enchant, share);
+            else
+                AddSuffixStats(stats, sItemRandomSuffixStore.LookupEntry(roll.enchant), suffixFactor, share);
         }
-        return chances > 0.0f ? total / chances : 0.0f;
+    }
+
+    // Same stat source as Player::_ApplyItemBonuses (heirlooms scale with level).
+    void AddTemplateStats(BotStatVector& stats, Player* bot, ItemTemplate const* proto)
+    {
+        ScalingStatDistributionEntry const* ssd = proto->ScalingStatDistribution
+            ? sScalingStatDistributionStore.LookupEntry(proto->ScalingStatDistribution) : nullptr;
+        ScalingStatValuesEntry const* ssv = nullptr;
+        if (ssd)
+            ssv = sScalingStatValuesStore.LookupEntry(std::min<uint32>(bot->getLevel(), ssd->MaxLevel));
+        for (uint8 i = 0; i < MAX_ITEM_PROTO_STATS; ++i)
+        {
+            if (ssd && ssv)
+            {
+                if (ssd->StatMod[i] < 0)
+                    continue;
+                int32 const value = int32(ssv->GetStatMultiplier(proto->InventoryType) * ssd->Modifier[i]) / 10000;
+                AddItemMod(stats, uint32(ssd->StatMod[i]), float(value));
+            }
+            else
+                AddItemMod(stats, proto->ItemStat[i].ItemStatType, float(proto->ItemStat[i].ItemStatValue));
+        }
+    }
+
+    // Everything a worn piece gives that leaves with it: its stats, gems, socket bonus
+    // and enchant. Taken out of the bot's totals when a candidate for its slot is valued.
+    BotStatVector WornStats(Player* bot, Item* item)
+    {
+        BotStatVector stats{};
+        if (!item || !item->GetTemplate())
+            return stats;
+        AddTemplateStats(stats, bot, item->GetTemplate());
+        AddRandomStats(stats, item->GetTemplate(), item);
+        for (uint32 slot : { uint32(PERM_ENCHANTMENT_SLOT), uint32(SOCK_ENCHANTMENT_SLOT), uint32(SOCK_ENCHANTMENT_SLOT_2),
+                             uint32(SOCK_ENCHANTMENT_SLOT_3), uint32(BONUS_ENCHANTMENT_SLOT), uint32(PRISMATIC_ENCHANTMENT_SLOT) })
+            AddEnchantStats(stats, sSpellItemEnchantmentStore.LookupEntry(item->GetEnchantmentId(EnchantmentSlot(slot))), 1.0f);
+        return stats;
+    }
+
+    bool IsHitRating(CombatRating rating)
+    {
+        return rating == CombatRating::CR_HIT_MELEE || rating == CombatRating::CR_HIT_RANGED
+            || rating == CombatRating::CR_HIT_SPELL;
+    }
+
+    bool IsHasteRating(CombatRating rating)
+    {
+        return rating == CombatRating::CR_HASTE_MELEE || rating == CombatRating::CR_HASTE_RANGED
+            || rating == CombatRating::CR_HASTE_SPELL;
+    }
+
+    // How much of one stat the bot has towards a cap, in rating points.
+    float CurrentStat(Player* bot, BotStat stat, CombatRating capRating)
+    {
+        auto rating = [bot](CombatRating cr)
+        {
+            return float(bot->GetUInt32Value(PLAYER_FIELD_COMBAT_RATINGS + uint32(cr)));
+        };
+        switch (stat)
+        {
+            case BOT_STAT_HIT:       return rating(IsHitRating(capRating) ? capRating : CombatRating::CR_HIT_MELEE);
+            case BOT_STAT_EXPERTISE: return rating(CombatRating::CR_EXPERTISE);
+            case BOT_STAT_HASTE:     return rating(IsHasteRating(capRating) ? capRating : CombatRating::CR_HASTE_MELEE);
+            case BOT_STAT_SPIRIT:    return bot->GetStat(STAT_SPIRIT);
+            default:                 return 0.0f;
+        }
+    }
+
+    // Average weight factor of `amount` points added on top of `base` in a capped pool.
+    float CapFactor(BotStatCap const& cap, float multiplier, float base, float amount)
+    {
+        if (amount <= 0.0f || multiplier <= 0.0f)
+            return 1.0f;
+        float covered = 0.0f;   // weighted points
+        float from = base;
+        float const to = base + amount;
+        float factor = 1.0f;
+        for (uint8 t = 0; t <= cap.tierCount && from < to; ++t)
+        {
+            float const edge = t < cap.tierCount ? cap.pct[t] / multiplier : to;
+            if (edge > from)
+            {
+                float const end = std::min(edge, to);
+                covered += (end - from) * factor;
+                from = end;
+            }
+            if (t < cap.tierCount)
+                factor = cap.factorAbove[t];
+        }
+        return covered / amount;
+    }
+
+    // A piece's stats against the bot's caps: points that push a capped pool past its cap
+    // count for what they are worth there. `slot` is the equipment slot the piece would
+    // take: what the piece worn there gives is taken out of the bot's totals first.
+    float ValueStats(Player* bot, BotStatWeights const& weights, BotStatVector const& stats, uint8 slot)
+    {
+        float factor[BOT_STAT_MAX];
+        std::fill(std::begin(factor), std::end(factor), 1.0f);
+
+        if (!weights.caps.empty())
+        {
+            Item* worn = slot < EQUIPMENT_SLOT_END ? bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot) : nullptr;
+            BotStatVector const wornStats = WornStats(bot, worn);
+            for (BotStatCap const& cap : weights.caps)
+            {
+                CombatRating const rating = CombatRating(cap.rating);
+                float base = 0.0f;
+                float amount = 0.0f;
+                for (uint32 s = 0; s < BOT_STAT_MAX; ++s)
+                {
+                    if (!(cap.statMask & (1u << s)))
+                        continue;
+                    base += std::max(0.0f, CurrentStat(bot, BotStat(s), rating) - wornStats[s]);
+                    amount += stats[s];
+                }
+                float const f = CapFactor(cap, bot->GetRatingMultiplier(rating), base, amount);
+                for (uint32 s = 0; s < BOT_STAT_MAX; ++s)
+                    if (cap.statMask & (1u << s))
+                        factor[s] = f;
+            }
+        }
+
+        float score = 0.0f;
+        for (uint32 s = 0; s < BOT_STAT_MAX; ++s)
+            score += stats[s] * weights.Get(BotStat(s)) * factor[s];
+        return score;
     }
 
     // Gems sorted best first for one spec, so a socket's estimate stops early.
@@ -738,34 +903,16 @@ namespace
     }
 }
 
-float BotEnchants::GearValue(Player* bot, uint32 specId, ItemTemplate const* proto, Item* item)
+float BotEnchants::GearValue(Player* bot, uint32 specId, ItemTemplate const* proto, Item* item, uint8 slot)
 {
     if (!bot || !proto)
         return 0.0f;
     BotStatWeights const& weights = BotStatWeightTable::For(specId, bot->getClass());
 
-    float score = 0.0f;
-
-    // Same stat source as Player::_ApplyItemBonuses (heirlooms scale with level).
-    ScalingStatDistributionEntry const* ssd = proto->ScalingStatDistribution
-        ? sScalingStatDistributionStore.LookupEntry(proto->ScalingStatDistribution) : nullptr;
-    ScalingStatValuesEntry const* ssv = nullptr;
-    if (ssd)
-        ssv = sScalingStatValuesStore.LookupEntry(std::min<uint32>(bot->getLevel(), ssd->MaxLevel));
-    for (uint8 i = 0; i < MAX_ITEM_PROTO_STATS; ++i)
-    {
-        if (ssd && ssv)
-        {
-            if (ssd->StatMod[i] < 0)
-                continue;
-            int32 const value = int32(ssv->GetStatMultiplier(proto->InventoryType) * ssd->Modifier[i]) / 10000;
-            score += weights.ForItemMod(uint32(ssd->StatMod[i])) * float(value);
-        }
-        else
-            score += weights.ForItemMod(proto->ItemStat[i].ItemStatType) * float(proto->ItemStat[i].ItemStatValue);
-    }
-
-    score += ScoreRandomStats(bot, proto, item, weights);
+    BotStatVector stats{};
+    AddTemplateStats(stats, bot, proto);
+    AddRandomStats(stats, proto, item);
+    float score = ValueStats(bot, weights, stats, slot);
     score += ScoreSockets(bot, specId, proto, weights);
 
     // Weapon damage drives physical specs' abilities: 1 DPS = 14 attack power,

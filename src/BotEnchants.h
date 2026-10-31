@@ -28,10 +28,13 @@ namespace BotEnchants
     Result Apply(Player* bot, uint32 specId, bool enchants, bool gems, bool replaceEnchants);
 
     // Autogear's score for a piece: its stats weighted for the spec (random
-    // suffixes as rolled when item is given, else their average), each socket
-    // as the best gem maintenance would put there, and weapon DPS for
-    // physical specs. Enchants are not counted: they do not move with the item.
-    float GearValue(Player* bot, uint32 specId, ItemTemplate const* proto, Item* item = nullptr);
+    // suffixes as rolled when item is given, else their average), valued against
+    // the spec's caps (BotStatWeights::caps) from the bot's own ratings without
+    // the piece worn in `slot`; each socket as the best gem maintenance would put
+    // there, and weapon DPS for physical specs. Enchants are not counted: they do
+    // not move with the item.
+    float GearValue(Player* bot, uint32 specId, ItemTemplate const* proto, Item* item = nullptr,
+        uint8 slot = 255);
 }
 
 #endif

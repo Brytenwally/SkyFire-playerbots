@@ -301,7 +301,14 @@ Playerbots.Gear.MaxQuality = 4
 #                     (the same ones maintenance uses for enchants and gems):
 #                     weighted stats, random suffixes (as rolled on worn
 #                     gear, their average on candidates), each socket as the
-#                     best gem for it, and weapon DPS for physical specs;
+#                     best gem for it, and weapon DPS for physical specs.
+#                     Stat caps are approximated from the spec's priority
+#                     page: 7.5% hit / 7.5% expertise (15% for tanks), 15%
+#                     spell hit for casters (spirit counts for Balance,
+#                     Shadow, Elemental), Fury hit to 26.5%, Balance haste
+#                     soft cap 24.22%, healer haste breakpoints. Rating past
+#                     a cap is worth little, measured on the bot's own
+#                     ratings without the piece it would replace;
 #                     `autogear reset` then takes the best piece instead of a
 #                     random pick among the top ones. 0 = item level (half
 #                     for a piece with another spec's primary stat).
@@ -337,7 +344,8 @@ Playerbots.AutoGear.StatWeights = 1
 #                     skipped; gems need an item level up to the gear's, and
 #                     items sold for reputation (inscriptions, some gems) need
 #                     the bot to have that reputation.
-#                     Hit/expertise caps are not modelled. An existing enchant
+#                     Gems respect the same stat caps as autogear (no hit
+#                     gems once hit capped). An existing enchant
 #                     is replaced only by a better one; gems never replace
 #                     socketed ones.
 #        Default:     1

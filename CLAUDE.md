@@ -97,7 +97,12 @@ anonymous namespace; free functions there are file-local.
   (owner's choice: the maintenance stat weights; stats incl. heirloom scaling,
   random suffixes as rolled / averaged over item_enchantment_template, sockets
   as the best gem, weapon DPS x7 x primary weight for non-Int specs; enchants
-  not counted). `Playerbots.AutoGear.StatWeights = 0` restores item level
+  not counted). Caps (`BotStatWeights` `CapsFor`, owner's request, from the
+  Wowhead page): pools of stats in rating units measured in % of one combat
+  rating (`GetRatingMultiplier`), tiers with a weight factor past each cap
+  (hard caps 0.05). `ValueStats` starts from the bot's own ratings
+  (`PLAYER_FIELD_COMBAT_RATINGS`, spirit from `GetStat`) minus what the piece
+  in that slot gives (`WornStats`: stats, rolled suffix, gems, bonus, enchant). `Playerbots.AutoGear.StatWeights = 0` restores item level
   (half for another spec's primary stat). Weighted `reset` takes the best piece,
   init stays random among the top ilvl. Old piece to bags, never the gear bag.
   Config `Playerbots.AutoGear.*`. `autogear bis` not ported (needs BiS tables).
@@ -119,8 +124,9 @@ anonymous namespace; free functions there are file-local.
   `WorldSession::HandleSocketOpcode` (meta toggling, socket bonus); only empty
   sockets; sha/cogwheel sockets and profession-only gems/enchants skipped;
   items needing reputation (`RequiredReputationFaction`) need the bot's rep.
-  Alts: only items without an enchant are enchanted. Caps not modelled;
-  the same weights drive autogear (see above).
+  Alts: only items without an enchant are enchanted. Gems are valued against
+  the same caps, per item, from the bot's current ratings; enchants are not.
+  The same weights drive autogear (see above).
 - `quests all|completed|incompleted|summary`: `PlayerbotAI::HandleQuestListCommand`
   (AC ListQuestsAction, plus objective progress). Bare `quests` stays
   SkyFire's accept / turn in. AC's `travel` variants need TravelMgr (absent).
