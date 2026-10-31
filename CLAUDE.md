@@ -188,6 +188,9 @@ anonymous namespace; free functions there are file-local.
   verified on 14 tooltip values. `.debug itemlevel <slot> <shift>` /
   `raw <upgrade id> [mask]`; not saved yet. Groundwork for Destiny Weaver loot
   scaling (heirloom-like, frozen at the loot level).
+  Owner's decisions: Destiny Weaver only upgrades loot, never downgrades; no
+  random suffixes to add secondary stats to upgraded items (they rename the
+  item and add to its budget) — items keep their own stats, scaled.
 
 - Database setup (`src/server/shared/Database/DatabaseSetup/`): updates the
   base SQL already records in `skyfire_db_updates` are skipped instead of
