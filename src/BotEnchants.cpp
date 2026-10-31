@@ -36,7 +36,11 @@ namespace
 {
     // Defined with the gear valuation below.
     void AddEnchantStats(BotStatVector& stats, SpellItemEnchantmentEntry const* enchant, float scale);
-    float ValueStats(Player* bot, BotStatWeights const& weights, BotStatVector const& stats, uint8 slot);
+    // mustReach: points below a must-reach cap count kMustReachBoost times (maintenance).
+    // exclude: stats taken out of the bot's totals first (the enchant being replaced).
+    float ValueStats(Player* bot, BotStatWeights const& weights, BotStatVector const& stats, uint8 slot,
+        bool mustReach = false, BotStatVector const* exclude = nullptr);
+    constexpr float kMustReachBoost = 10.0f;
 
     // Share of a proc's stats counted, a rough average uptime.
     constexpr float kProcUptime = 0.35f;
@@ -367,6 +371,22 @@ namespace
         return ScoreEnchant(enchant, nullptr, PowerWeights());
     }
 
+    // An enchant's worth in maintenance: its equip effects, and its stats valued against the
+    // spec's caps with must-reach caps filled first.
+    float MaintenanceEnchantScore(SpellItemEnchantmentEntry const* enchant, Player* bot,
+        BotStatWeights const& weights, BotStatVector const& exclude)
+    {
+        float const total = ScoreEnchant(enchant, bot, weights);
+        if (weights.caps.empty() || !enchant)
+            return total;
+        BotStatVector stats{};
+        AddEnchantStats(stats, enchant, 1.0f);
+        float plain = 0.0f;
+        for (uint32 s = 0; s < BOT_STAT_MAX; ++s)
+            plain += stats[s] * weights.Get(BotStat(s));
+        return total - plain + ValueStats(bot, weights, stats, NULL_SLOT, true, &exclude);
+    }
+
     // Stat budget of an epic chest at the gear's item level (RandPropPoints): the
     // yardstick an enchant is measured against. Heirlooms count at the bot's level.
     float GearBudget(Player* bot, Item* item)
@@ -585,6 +605,10 @@ namespace
         EnchantCandidate const* buckle = nullptr;
         bool const wantsBuckle = !item->GetEnchantmentId(PRISMATIC_ENCHANTMENT_SLOT)
             && HasFreeSocketPosition(item->GetTemplate());
+        // The enchant on the item now leaves when another goes on: the bot's caps are
+        // measured without it, for the candidates and for itself.
+        BotStatVector currentStats{};
+        AddEnchantStats(currentStats, sSpellItemEnchantmentStore.LookupEntry(item->GetEnchantmentId(PERM_ENCHANTMENT_SLOT)), 1.0f);
         for (EnchantCandidate const& candidate : EnchantCandidates())
         {
             if (candidate.prismatic)
@@ -593,7 +617,7 @@ namespace
                     buckle = &candidate;
                 continue;
             }
-            float const score = ScoreEnchant(candidate.enchant, bot, weights);
+            float const score = MaintenanceEnchantScore(candidate.enchant, bot, weights, currentStats);
             if (score <= bestScore || !EnchantUsable(candidate, bot, item))
                 continue;
             best = &candidate;
@@ -621,7 +645,8 @@ namespace
             uint32 const current = item->GetEnchantmentId(PERM_ENCHANTMENT_SLOT);
             bool better = !current;
             if (current && replace && current != best->enchant->ID)
-                better = bestScore > ScoreEnchant(sSpellItemEnchantmentStore.LookupEntry(current), bot, weights) + 0.5f;
+                better = bestScore > MaintenanceEnchantScore(sSpellItemEnchantmentStore.LookupEntry(current), bot,
+                    weights, currentStats) + 0.5f;
             if (better)
             {
                 EnchantItem(bot, item, PERM_ENCHANTMENT_SLOT, best->enchant->ID);
@@ -691,7 +716,7 @@ BotEnchants::Result BotEnchants::Apply(Player* bot, uint32 specId, bool enchants
         {
             if (!weights.caps.empty())
                 for (size_t i = 0; i < candidates.size(); ++i)
-                    gemScores[i] = gemEffects[i] + ValueStats(bot, weights, gemStats[i], NULL_SLOT);
+                    gemScores[i] = gemEffects[i] + ValueStats(bot, weights, gemStats[i], NULL_SLOT, true);
             result.gems += GemItem(bot, item, weights, gemScores);
         }
     }
@@ -874,15 +899,16 @@ namespace
         }
     }
 
-    // Average weight factor of `amount` points added on top of `base` in a capped pool.
-    float CapFactor(BotStatCap const& cap, float multiplier, float base, float amount)
+    // Average weight factor of `amount` points added on top of `base` in a capped pool;
+    // points below the first cap count belowFactor.
+    float CapFactor(BotStatCap const& cap, float multiplier, float base, float amount, float belowFactor)
     {
         if (amount <= 0.0f || multiplier <= 0.0f)
             return 1.0f;
         float covered = 0.0f;   // weighted points
         float from = base;
         float const to = base + amount;
-        float factor = 1.0f;
+        float factor = belowFactor;
         for (uint8 t = 0; t <= cap.tierCount && from < to; ++t)
         {
             float const edge = t < cap.tierCount ? cap.pct[t] / multiplier : to;
@@ -901,7 +927,8 @@ namespace
     // A piece's stats against the bot's caps: points that push a capped pool past its cap
     // count for what they are worth there. `slot` is the equipment slot the piece would
     // take: what the piece worn there gives is taken out of the bot's totals first.
-    float ValueStats(Player* bot, BotStatWeights const& weights, BotStatVector const& stats, uint8 slot)
+    float ValueStats(Player* bot, BotStatWeights const& weights, BotStatVector const& stats, uint8 slot,
+        bool mustReach, BotStatVector const* exclude)
     {
         float factor[BOT_STAT_MAX];
         std::fill(std::begin(factor), std::end(factor), 1.0f);
@@ -919,10 +946,12 @@ namespace
                 {
                     if (!(cap.statMask & (1u << s)))
                         continue;
-                    base += std::max(0.0f, CurrentStat(bot, BotStat(s), rating) - wornStats[s]);
+                    float const excluded = exclude ? (*exclude)[s] : 0.0f;
+                    base += std::max(0.0f, CurrentStat(bot, BotStat(s), rating) - wornStats[s] - excluded);
                     amount += stats[s];
                 }
-                float const f = CapFactor(cap, bot->GetRatingMultiplier(rating), base, amount);
+                float const below = mustReach && cap.mustReach ? kMustReachBoost : 1.0f;
+                float const f = CapFactor(cap, bot->GetRatingMultiplier(rating), base, amount, below);
                 for (uint32 s = 0; s < BOT_STAT_MAX; ++s)
                     if (cap.statMask & (1u << s))
                         factor[s] = f;

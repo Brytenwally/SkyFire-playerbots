@@ -344,8 +344,12 @@ Playerbots.AutoGear.StatWeights = 1
 #                     skipped; gems need an item level up to the gear's, and
 #                     items sold for reputation (inscriptions, some gems) need
 #                     the bot to have that reputation.
-#                     Gems respect the same stat caps as autogear (no hit
-#                     gems once hit capped). An existing enchant
+#                     Gems and enchants respect the same stat caps as
+#                     autogear, and caps Wowhead says to reach first (hit,
+#                     expertise, spell hit, healer haste breakpoints) are
+#                     filled before any other stat: below them those stats
+#                     count ten times. No hit gems once hit capped. Balance's
+#                     haste soft cap is only a ceiling. An existing enchant
 #                     is replaced only by a better one; gems never replace
 #                     socketed ones.
 #        Default:     1

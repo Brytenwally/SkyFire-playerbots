@@ -47,6 +47,9 @@ struct BotStatCap
     uint8 tierCount = 0;
     float pct[2] = {};
     float factorAbove[2] = {};
+    // Wowhead says to reach it first (hit, expertise, spell hit, healer haste
+    // breakpoints): maintenance fills it with gems and enchants before anything else.
+    bool mustReach = false;
 };
 
 struct BotStatWeights

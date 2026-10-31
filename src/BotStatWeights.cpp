@@ -134,9 +134,10 @@ namespace
     constexpr float kOverCap = 0.05f;
     constexpr uint32 Bit(BotStat stat) { return 1u << stat; }
 
-    BotStatCap Cap(uint32 mask, CombatRating rating, float pct, float factor)
+    BotStatCap Cap(uint32 mask, CombatRating rating, float pct, float factor, bool mustReach = true)
     {
         BotStatCap cap;
+        cap.mustReach = mustReach;
         cap.statMask = mask;
         cap.rating = uint8(rating);
         cap.tierCount = 1;
@@ -187,7 +188,7 @@ namespace
             // (GCD at 1s), past which it falls just below crit.
             case 102:
                 return { Cap(hit | exp | spi, CombatRating::CR_HIT_SPELL, 15.0f, kOverCap),
-                         Cap(haste, CombatRating::CR_HASTE_SPELL, 24.22f, 0.9f) };
+                         Cap(haste, CombatRating::CR_HASTE_SPELL, 24.22f, 0.9f, false) };
             // Shadow, Elemental: hit, spirit and expertise fill 15% spell hit.
             case 258: case 262:
                 return { Cap(hit | exp | spi, CombatRating::CR_HIT_SPELL, 15.0f, kOverCap) };

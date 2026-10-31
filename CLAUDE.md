@@ -131,8 +131,14 @@ anonymous namespace; free functions there are file-local.
   budget (RandPropPoints epic col 0 at its item level). Each applied enchant
   is logged with its source, level and power; on non-alt bots an existing
   enchant over the cap is removed (replaced when something fits).
-  Alts: only items without an enchant are enchanted. Gems are valued against
-  the same caps, per item, from the bot's current ratings; enchants are not.
+  Alts: only items without an enchant are enchanted. Gems and enchants are
+  valued against the same caps, per item, from the bot's current ratings
+  (enchants without the stats of the enchant they would replace). Owner's
+  rule: caps marked `mustReach` (hit, expertise, spell hit, healer haste
+  breakpoints; not Balance's haste soft cap) are filled first in maintenance:
+  points below them count `kMustReachBoost` (10) times. Autogear does not
+  boost. Several sockets of one item are chosen together, so a cap can be
+  overshot by a gem or two.
   The same weights drive autogear (see above).
 - `quests all|completed|incompleted|summary`: `PlayerbotAI::HandleQuestListCommand`
   (AC ListQuestsAction, plus objective progress). Bare `quests` stays
