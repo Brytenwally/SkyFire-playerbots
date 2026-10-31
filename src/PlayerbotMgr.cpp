@@ -177,6 +177,7 @@ void PlayerbotMgr::LoadConfig()
     _altMaintenanceEnchants = sConfigMgr->GetBoolDefault("Playerbots.AltMaintenance.Enchants", true);
     _altMaintenanceGems = sConfigMgr->GetBoolDefault("Playerbots.AltMaintenance.Gems", true);
     BotStatWeightTable::SetRankStep(sConfigMgr->GetFloatDefault("Playerbots.Maintenance.StatRankStep", 0.05f));
+    BotEnchants::SetEnchantBudgetShare(sConfigMgr->GetFloatDefault("Playerbots.Maintenance.EnchantBudgetShare", 1.0f));
 
     // Optional numeric thresholds (strategies themselves are runtime co/nc only).
     _restHealthPct = float(sConfigMgr->GetFloatDefault("Playerbots.Rest.HealthPct", 50.0f));

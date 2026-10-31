@@ -350,6 +350,16 @@ Playerbots.AutoGear.StatWeights = 1
 #                     socketed ones.
 #        Default:     1
 #
+#    Playerbots.Maintenance.EnchantBudgetShare
+#        Description: Most an enchant may be worth, as a share of the gear's
+#                     stat budget (RandPropPoints of an epic chest at the
+#                     item's level), counted in primary-stat points (rating
+#                     and spirit half, stamina 2/3, procs at their uptime).
+#                     Keeps high-level or test enchants off low-level gear
+#                     even when their source data claims a low level. Lower
+#                     it if bots still get enchants too strong for their gear.
+#        Default:     1.0
+#
 #    Playerbots.Maintenance.StatRankStep
 #        Description: Weight lost per rank down a spec's stat priority
 #                     (0.05: 1, 0.95, 0.90, ...). Stats a spec does not list
@@ -392,6 +402,7 @@ Playerbots.Maintenance.BagEntry = 82446
 Playerbots.Maintenance.Enchants = 1
 Playerbots.Maintenance.Gems = 1
 Playerbots.Maintenance.StatRankStep = 0.05
+Playerbots.Maintenance.EnchantBudgetShare = 1.0
 
 #
 #    Playerbots.Rest.HealthPct

@@ -27,6 +27,10 @@ namespace BotEnchants
     // items without an enchant get one. Gems only ever go into empty sockets.
     Result Apply(Player* bot, uint32 specId, bool enchants, bool gems, bool replaceEnchants);
 
+    // An enchant may be worth at most this share of the gear's stat budget
+    // (RandPropPoints of an epic chest at its item level), in primary-stat points.
+    void SetEnchantBudgetShare(float share);
+
     // Autogear's score for a piece: its stats weighted for the spec (random
     // suffixes as rolled when item is given, else their average), valued against
     // the spec's caps (BotStatWeights::caps) from the bot's own ratings without

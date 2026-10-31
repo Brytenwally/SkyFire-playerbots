@@ -58,7 +58,11 @@ namespace
         uint32 skillRank;
         bool prismatic;    // adds a socket (belt buckle) instead of a permanent enchant
         ItemTemplate const* source; // scroll / kit / inscription item, nullptr for recipes
+        float power = 0.0f;         // stat value in primary-stat points (PowerWeights)
     };
+
+    // Share of the gear's stat budget an enchant may be worth (Playerbots.Maintenance.EnchantBudgetShare).
+    float g_enchantBudgetShare = 1.0f;
 
     bool IsJunkName(char const* raw)
     {
@@ -152,6 +156,8 @@ namespace
         return spell->EquippedItemClass == ITEM_CLASS_ARMOR || spell->EquippedItemClass == ITEM_CLASS_WEAPON;
     }
 
+    float EnchantPower(SpellItemEnchantmentEntry const* enchant);   // below, after ScoreEnchant
+
     std::vector<EnchantCandidate> const& EnchantCandidates()
     {
         static std::vector<EnchantCandidate> enchants;
@@ -177,6 +183,9 @@ namespace
                 bool prismatic = false;
                 if (!spell || !TargetsGear(spell) || !FindEnchantEffect(spell, enchant, prismatic))
                     continue;
+                // Without a required or item level there is nothing to say who it is for.
+                if (!proto->RequiredLevel && proto->ItemLevel <= 1)
+                    continue;
                 uint32 const level = proto->RequiredLevel ? proto->RequiredLevel
                     : std::clamp<uint32>(proto->ItemLevel, 1, 90);
                 enchants.push_back({ spell, enchant, level, proto->RequiredSkill, proto->RequiredSkillRank, prismatic, proto });
@@ -199,7 +208,8 @@ namespace
                 enchanting = true;
                 rank = std::max(rank, it->second->req_skill_value ? it->second->req_skill_value : it->second->min_value);
             }
-            if (!enchanting)
+            // A recipe without a skill rank has no level: often an NPC or unused copy.
+            if (!enchanting || !rank)
                 continue;
             SpellItemEnchantmentEntry const* enchant = nullptr;
             bool prismatic = false;
@@ -207,6 +217,8 @@ namespace
                 continue;
             enchants.push_back({ spell, enchant, SkillRankToLevel(rank), 0, 0, prismatic, nullptr });
         }
+        for (EnchantCandidate& candidate : enchants)
+            candidate.power = EnchantPower(candidate.enchant);
         SF_LOG_INFO("modules", "[mod-playerbots] Enchants: %u enchant candidate(s).", uint32(enchants.size()));
         return enchants;
     }
@@ -333,6 +345,40 @@ namespace
         return score;
     }
 
+    // Spec-neutral yardstick: everything in primary-stat points (MoP gems: 160 primary,
+    // 240 stamina, 320 rating), attack power at half a point, procs at their uptime.
+    BotStatWeights const& PowerWeights()
+    {
+        static BotStatWeights weights = []
+        {
+            BotStatWeights w;
+            for (float& v : w.perPoint)
+                v = 0.5f;
+            w.perPoint[BOT_STAT_STRENGTH] = w.perPoint[BOT_STAT_AGILITY] = w.perPoint[BOT_STAT_INTELLECT] = 1.0f;
+            w.perPoint[BOT_STAT_SPELL_POWER] = 1.0f;
+            w.perPoint[BOT_STAT_STAMINA] = 0.67f;
+            return w;
+        }();
+        return weights;
+    }
+
+    float EnchantPower(SpellItemEnchantmentEntry const* enchant)
+    {
+        return ScoreEnchant(enchant, nullptr, PowerWeights());
+    }
+
+    // Stat budget of an epic chest at the gear's item level (RandPropPoints): the
+    // yardstick an enchant is measured against. Heirlooms count at the bot's level.
+    float GearBudget(Player* bot, Item* item)
+    {
+        ItemTemplate const* proto = item->GetTemplate();
+        uint32 itemLevel = proto->ItemLevel;
+        if (proto->ScalingStatDistribution)
+            itemLevel = std::max<uint32>(itemLevel, bot->getLevel());
+        RandomPropertiesPointsEntry const* points = sRandomPropertiesPointsStore.LookupEntry(itemLevel);
+        return points ? float(points->EpicPropertiesPoints[0]) : 0.0f;
+    }
+
     // Items sold for reputation (shoulder inscriptions, some gems) need it.
     bool HasReputation(Player* bot, ItemTemplate const* proto)
     {
@@ -359,6 +405,11 @@ namespace
             return false;
         if (item->GetTemplate()->ItemLevel < c.spell->BaseLevel)
             return false;
+        // An enchant worth more than the gear's own stat budget belongs to far better
+        // gear, whatever level its source claims (test copies, recipes without a rank).
+        if (c.power > 0.0f)
+            if (float const budget = GearBudget(bot, item); budget > 0.0f && c.power > budget * g_enchantBudgetShare)
+                return false;
         return item->IsFitToSpellRequirements(c.spell);
     }
 
@@ -559,6 +610,12 @@ namespace
             {
                 EnchantItem(bot, item, PERM_ENCHANTMENT_SLOT, best->enchant->ID);
                 ++applied;
+                SF_LOG_INFO("modules", "[mod-playerbots] Enchanted %s's %s (item level %u): enchant %u '%s' "
+                    "from %s %u (level %u, worth %.0f of a %.0f budget).",
+                    bot->GetName().c_str(), item->GetTemplate()->Name1.c_str(), item->GetTemplate()->ItemLevel,
+                    best->enchant->ID, best->enchant->description ? best->enchant->description : "",
+                    best->source ? "item" : "spell", best->source ? best->source->ItemId : best->spell->Id,
+                    best->level, best->power, GearBudget(bot, item));
             }
         }
         if (buckle)
@@ -568,6 +625,11 @@ namespace
         }
         return applied;
     }
+}
+
+void BotEnchants::SetEnchantBudgetShare(float share)
+{
+    g_enchantBudgetShare = std::max(0.05f, share);
 }
 
 BotEnchants::Result BotEnchants::Apply(Player* bot, uint32 specId, bool enchants, bool gems, bool replaceEnchants)

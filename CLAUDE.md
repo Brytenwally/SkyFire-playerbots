@@ -124,6 +124,12 @@ anonymous namespace; free functions there are file-local.
   `WorldSession::HandleSocketOpcode` (meta toggling, socket bonus); only empty
   sockets; sha/cogwheel sockets and profession-only gems/enchants skipped;
   items needing reputation (`RequiredReputationFaction`) need the bot's rep.
+  Enchant sanity (owner saw +160 agi on a level 22 rogue's daggers): recipes
+  without a SkillLineAbility rank and scrolls without a required/item level
+  are dropped, and an enchant's power (`EnchantPower`, primary-stat points)
+  may not exceed `Playerbots.Maintenance.EnchantBudgetShare` x the gear's
+  budget (RandPropPoints epic col 0 at its item level). Each applied enchant
+  is logged with its source, level and power.
   Alts: only items without an enchant are enchanted. Gems are valued against
   the same caps, per item, from the bot's current ratings; enchants are not.
   The same weights drive autogear (see above).
