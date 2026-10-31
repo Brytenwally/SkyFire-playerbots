@@ -179,10 +179,15 @@ anonymous namespace; free functions there are file-local.
 - Item level shift test (`game/Entities/Item/ItemLevelShift.*`): an item instance
   carries an item level shift in its upgrade modifier (ITEM_DYNAMIC_MODIFIERS
   index 2, synthetic upgrade ids 900000+1000+shift, ItemUpgrade.db2 hotfix rows
-  for -200..+600 sent at login). Stats scale by the RandPropPoints budget ratio,
-  armor/damage from the item level tables. `.debug itemlevel <slot> <shift>`;
-  not saved yet. Groundwork for Destiny Weaver loot scaling (heirloom-like,
-  frozen at the loot level) once the client display is confirmed.
+  for -200..+600 sent at login, path 124; the client requests them in batches of
+  100). Confirmed in game: the tooltip follows when ITEM_FIELD_MODIFIERS_MASK
+  covers modifiers 0-2 (7; 4 is ignored, 255 breaks the item). Stats use the
+  client's formula (RandPropPoints x stat_unk1 allocation / 10000 minus
+  int(socket multiplier x gtItemSocketCostPerLevel), multiplier recovered to a
+  quarter because the DB rounds it), armor/damage from the item level tables;
+  verified on 14 tooltip values. `.debug itemlevel <slot> <shift>` /
+  `raw <upgrade id> [mask]`; not saved yet. Groundwork for Destiny Weaver loot
+  scaling (heirloom-like, frozen at the loot level).
 
 - Database setup (`src/server/shared/Database/DatabaseSetup/`): updates the
   base SQL already records in `skyfire_db_updates` are skipped instead of
