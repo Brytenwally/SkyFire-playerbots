@@ -251,6 +251,17 @@ void PlayerbotMgr::Update(uint32 diff)
     // Drop bots whose player has left the world for any reason.
     CleanupDeadBots();
 
+    // Alt bots of a player who logged out: logged out now, which saves them.
+    if (!_pendingAltLogouts.empty())
+    {
+        std::vector<uint64> logouts;
+        logouts.swap(_pendingAltLogouts);
+        for (uint64 botGuid : logouts)
+            if (RemoveBot(botGuid))
+                SF_LOG_INFO("modules", "[mod-playerbots] Alt bot GUID %u logged out with its owner (saved).",
+                    GUID_LOPART(botGuid));
+    }
+
     // Finish ready async logins (at most LoginsPerTick LoadFromDB per tick).
     ProcessPendingLogins();
 
@@ -1333,6 +1344,24 @@ void PlayerbotMgr::OnPlayerLogout(Player* player)
     uint64 const guid = player->GetGUID();
     _selfBots.erase(guid);
     DestroyBotAI(guid);
+
+    // A bot's own logout, or no account: nothing more.
+    WorldSession* session = player->GetSession();
+    if (!session || session->IsBot())
+        return;
+
+    // The player's other characters still running as bots run on separate
+    // sessions of the same account. Left online, the next login of one of them
+    // loads its last autosave (up to ~20 minutes old: a dungeon it left long
+    // ago) while the bot copy keeps playing and saving over it. Log them out,
+    // saving, on the next tick (not inside this logout).
+    uint32 const accountId = session->GetAccountId();
+    for (auto const& pair : _bots)
+    {
+        WorldSession* botSession = pair.second;
+        if (botSession && botSession->GetAccountId() == accountId && !IsRandomBot(pair.first))
+            _pendingAltLogouts.push_back(pair.first);
+    }
 }
 
 void PlayerbotMgr::SyncNearbyBotVisibility(Player* viewer, uint32 diff)
