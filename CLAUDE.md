@@ -83,7 +83,13 @@ anonymous namespace; free functions there are file-local.
   `Playerbots.Maintenance.Command`, `Playerbots.AltMaintenance.*`.
   Not ported: enchants/gems, consumables, bags, reputation, pet talents.
 - Alt bot = not in the random pool and not on an AccountPrefix account
-  (`PlayerbotMgr::IsAltBot`).
+  (`PlayerbotMgr::IsAltBot`, account name checked by `IsBotAccount`, cached).
+  **Rule from the owner: nothing changes an alt unless the player orders it.**
+  No automatic init/gear/spec/teleport (`BotNeedsGearInit` returns false for
+  alts) and idle vendoring sells only greys (more only on `sell all`). Keep
+  new automatic behaviour off for alts too.
+- Automatic init (ungeared sweep / first login) runs at most once per bot per
+  session (`_autoInited`): low-level bots can stay in whites after an init.
 
 ## Core fixes made in SkyFire_548
 

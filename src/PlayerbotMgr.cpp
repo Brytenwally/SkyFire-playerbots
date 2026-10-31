@@ -108,6 +108,7 @@ void PlayerbotMgr::LoadConfig()
     _randomBotsEnabled = sConfigMgr->GetBoolDefault("Playerbots.RandomBots.Enable", false);
     _maxRandomBots = uint32(sConfigMgr->GetIntDefault("Playerbots.RandomBots.MaxBots", 0));
     _accountPrefix = sConfigMgr->GetStringDefault("Playerbots.RandomBots.AccountPrefix", "RNDBOT");
+    _botAccountCache.clear();
     _loginIntervalMs = uint32(sConfigMgr->GetIntDefault("Playerbots.RandomBots.LoginInterval", 250));
     if (_loginIntervalMs < 1)
         _loginIntervalMs = 1;
@@ -1261,8 +1262,9 @@ void PlayerbotMgr::FinishSpawnBot(PendingBotLogin& pending)
                 "[mod-playerbots] Queued first-login init+teleport for '%s' (GUID %u).",
                 bot->GetName().c_str(), GUID_LOPART(characterGuid));
         }
-        else if (BotNeedsGearInit(bot))
+        else if (!_autoInited.count(characterGuid) && BotNeedsGearInit(bot))
         {
+            _autoInited.insert(characterGuid);
             UpsertInitQueueJob(characterGuid, -1, 0, -1, false, _autoTeleportOnInit, false);
             SF_LOG_INFO("modules",
                 "[mod-playerbots] Queued ungeared init+teleport for '%s' (GUID %u).",
@@ -3295,16 +3297,39 @@ namespace
     }
 }
 
+bool PlayerbotMgr::IsBotAccount(uint32 accountId) const
+{
+    if (!accountId || _accountPrefix.empty())
+        return false;
+
+    if (auto it = _botAccountCache.find(accountId); it != _botAccountCache.end())
+        return it->second;
+
+    // Same test as the candidate pool's "username LIKE '<prefix>%'" (case-insensitive).
+    std::string name;
+    bool isBot = false;
+    if (AccountMgr::GetName(accountId, name) && name.size() >= _accountPrefix.size())
+    {
+        isBot = true;
+        for (size_t i = 0; i < _accountPrefix.size(); ++i)
+            if (std::toupper(static_cast<unsigned char>(name[i]))
+                != std::toupper(static_cast<unsigned char>(_accountPrefix[i])))
+            {
+                isBot = false;
+                break;
+            }
+    }
+    _botAccountCache[accountId] = isBot;
+    return isBot;
+}
+
 bool PlayerbotMgr::IsAltBot(Player* bot) const
 {
     if (!bot || IsRandomBot(bot->GetGUID()))
         return false;
 
     uint32 const accountId = bot->GetSession() ? bot->GetSession()->GetAccountId() : 0;
-    for (BotCandidate const& candidate : _candidates)
-        if (candidate.accountId == accountId)
-            return false;
-    return true;
+    return !IsBotAccount(accountId);
 }
 
 uint32 PlayerbotMgr::AutoGearBot(Player* bot, int maxItemQuality, uint32 maxItemLevel, bool reset)
@@ -3571,9 +3596,10 @@ void PlayerbotMgr::EnqueueUngearedOnlineBots(uint32 diff)
             continue;
         }
 
-        if (!BotNeedsGearInit(bot))
+        if (_autoInited.count(pair.first) || !BotNeedsGearInit(bot))
             continue;
 
+        _autoInited.insert(pair.first);
         UpsertInitQueueJob(pair.first, -1, 0, -1, false, _autoTeleportOnInit, false);
         ++queued;
     }
@@ -3601,6 +3627,10 @@ bool PlayerbotMgr::BotNeedsGearInit(Player* bot) const
         return false;
     if (_deferredInits.find(bot->GetGUID()) != _deferredInits.end())
         return true;
+
+    // An alt is a player's own character: only an explicit order inits it.
+    if (IsAltBot(bot))
+        return false;
 
     // Ungeared after deferred create — chest and main-hand both empty.
     if (!bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_CHEST)

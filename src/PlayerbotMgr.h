@@ -155,8 +155,12 @@ public:
     // riding/mounts and hunter pets, then repairs. Keeps spec and gear.
     // Alt bots skip the parts their Playerbots.AltMaintenance.* key disables.
     void MaintainBot(Player* bot);
-    // Not a random-pool bot and not on a bot (AccountPrefix) account.
+    // Not a random-pool bot and not on a bot (AccountPrefix) account: a real
+    // player's character. Nothing changes an alt (init, gear, spec, teleport)
+    // unless the player orders it.
     bool IsAltBot(Player* bot) const;
+    // Account name starts with Playerbots.RandomBots.AccountPrefix (cached).
+    bool IsBotAccount(uint32 accountId) const;
 
     bool IsAutoGearCommandEnabled() const { return _autoGearCommand; }
     bool IsAutoGearAltBotsEnabled() const { return _autoGearAltBots; }
@@ -251,6 +255,10 @@ private:
     bool _randomBotsEnabled = false;
     uint32 _maxRandomBots = 0;
     std::string _accountPrefix = "RNDBOT";
+    mutable std::unordered_map<uint32, bool> _botAccountCache;
+    // Bots already auto-inited this session: a low-level bot can still wear only
+    // whites after its init, and the ungeared sweep must not re-init it every 5 s.
+    std::unordered_set<uint64> _autoInited;
     // Delay between *starting* a new async login (not gear init).
     uint32 _loginIntervalMs = 250;
     // Cap in-flight login query holders for the random pool.

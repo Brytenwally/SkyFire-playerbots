@@ -237,7 +237,7 @@ Send these as the message text (case-insensitive).
 | `position` / `position ?` | List saved position names. |
 | `position go <name>` | Same as `go <name>`. |
 | `sell` / `sell junk` | Walk to a nearby vendor (or same-map vendor hub) and sell gray junk; also repairs if the NPC can. Idle bots do this opportunistically. |
-| `sell all` | Same path, but also vendor-dumps unbound greens+ (soulbound/quest/usable gear kept). |
+| `sell all` | Same path, but also vendor-dumps unbound greens+ (soulbound/quest/usable gear kept). Alt bots (your own characters) only ever sell more than grey junk on this order. |
 | `mount` / `dismount` | Force mount/dismount. Bots also **auto-mount when the master mounts**, matching ground vs flying vs swift flying, and dismount when the master does (or in combat). |
 | `mount prefer <spellId>` | Remember a preferred ground or flying mount spell for this bot (`playerbots_preferred_mounts`). |
 | `mount prefer clear` | Clear preferred mounts for this bot. |
