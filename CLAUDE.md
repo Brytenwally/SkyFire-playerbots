@@ -143,6 +143,13 @@ anonymous namespace; free functions there are file-local.
   item scaling (core `Item::GetStatTemplate`) are valued at their raised level
   and stats: autogear's worn score, `WornStats`, the enchant budget and the gem
   item level limit all read `GetStatTemplate()`.
+- Loot rolls (`PlayerbotAI::HandleLootRolls` / `IsLootUpgrade`), owner's rules: Need only
+  on weapons/armor the bot can use, of its class's armor type (mail/plate from 40), that beat
+  the worn piece (weaker of two ring/trinket/dual-wield slots; MH+OH for a two-hander) by
+  `Playerbots.Loot.NeedUpgradePercent` (2%) via `BotEnchants::GearValue`; stats below a
+  must-reach cap count `Playerbots.Loot.CapBoost` (1.15, not maintenance's 10, so casters do
+  not need tank items for hit). Greed on everything else. The item is valued at its base
+  level (a Destiny Weaver raise happens after it is won).
 - `quests all|completed|incompleted|summary`: `PlayerbotAI::HandleQuestListCommand`
   (AC ListQuestsAction, plus objective progress). Bare `quests` stays
   SkyFire's accept / turn in. AC's `travel` variants need TravelMgr (absent).
