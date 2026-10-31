@@ -1,0 +1,257 @@
+# CLAUDE.md
+
+Notes for Claude sessions working on SkyFire-playerbots. **Keep this file up to
+date**: when a session learns something future sessions need (a new subsystem,
+a build gotcha, a ported feature, a changed rule), add it here in the same
+commit.
+
+## What this is
+
+A port of the AzerothCore playerbots system (3.3.5 / WotLK) to **SkyFire 5.4.8
+(Mists of Pandaria)**. The goal is a test server populated with bot players
+(LFG, LFR, battlegrounds, arenas, open world).
+
+## The repositories
+
+| Repo | Role | Rules |
+| --- | --- | --- |
+| `Brytenwally/SkyFire-playerbots` (this repo) | The 5.4.8 module. Lives in the core at `modules/mod-playerbots`. | Where port work goes. |
+| `Brytenwally/SkyFire_548` | The 5.4.8 core, a fork of Project SkyFire. Has the module system and the bot hooks. | Change only for hooks the module cannot do without, or to fix core bugs the owner hits (e.g. database setup). |
+| `Brytenwally/SkyFire-build` | GitHub Actions workflow that builds Windows x64 binaries (core + this module, MySQL 8.0.44 client). | Has its own `CLAUDE.md`. |
+| `Brytenwally/SkyFire-DestinyWeaver` | `mod-destiny-weaver`: per-character open world scaling (port of the CoA AzerothCore module). In the core at `modules/mod-destiny-weaver`; disabled by default. | Has its own `CLAUDE.md`. Reference: `Brytenwally/azerothcore-wotlk-coa` (read-only). |
+| `Brytenwally/mod-playerbots` (branch `coa`) | AzerothCore 3.3.5 playerbots, Conquest of Azeroth fork. | **Read-only reference.** Never build it, never change or push to it, never compile it against 5.4.8. Read it to see what a feature does, then rewrite it for 5.4.8 here. |
+
+## Git rules
+
+- Commit and push straight to **`main`** in SkyFire-playerbots, SkyFire_548 and
+  SkyFire-build. No feature branches or PRs unless the owner asks for one.
+- Commit messages: imperative subject line, body explaining what and why.
+
+## Layout
+
+```
+src/
+  PlayerbotMgr.*        bot lifecycle, config loading, random pool, auto-create,
+                        InitializeBot, gear selection, autogear/maintenance
+  PlayerbotAI.*         per-bot AI tick, chat orders (HandleChatCommand), co/nc
+  PlayerbotScripts.cpp  ScriptMgr hooks and the `.playerbots` GM commands
+  mod_playerbots_loader.cpp  Addmod_playerbotsScripts() (name must match folder)
+  engine/               strategy engine, triggers, movement, formation, flee, targets
+  rotations/            per-class combat rotations, talents (BotTalents), glyphs
+  BotGearSets.*         PvE set worn, PvP set kept in a gear bag (entry 23162),
+                        one piece per bag position = equipment slot
+  BotTeleportMaps.*, BotVendorHubs.*, BotPreferredMounts.*
+  BotStatWeights.*      per-spec stat weights (Wowhead MoP priorities, rank-based)
+  BotEnchants.*         maintenance enchants and gems
+conf/playerbots.conf.dist   every config key, documented
+sql/characters/             character DB tables the module needs
+COMMANDS.md   every GM command and chat order (update when adding one)
+PORTING.md    phase plan and what is DONE / not ported (update when porting)
+rotation.md   rotation priority lists the rotations/ code follows
+```
+
+`PlayerbotMgr.cpp` keeps most helpers (gear, spells, mounts, pets) in an
+anonymous namespace; free functions there are file-local.
+
+## Core hooks the module relies on (in SkyFire_548)
+
+- Module system: each `modules/<name>/src` is compiled into the worldserver;
+  `AddModulesScripts()` calls `Add<name>Scripts()`. See `modules/README.md`.
+- `WorldSession::IsBot()` / socketless bot sessions.
+- `PlayerScript::OnUpdate(Player*, uint32)` via `ScriptMgr::OnPlayerUpdate`.
+- `PlayerScript::OnQuestAdd` / `OnQuestReward` (end of `Player::AddQuest` /
+  `Player::RewardQuest`): grouped bots copy the master's accepts and turn-ins
+  (`PlayerbotAI::MirrorQuestAccept` / `MirrorQuestReward`, called from
+  `PlayerbotScripts.cpp`). Owner's rule, as on AzerothCore: a bot that has the
+  quest turns it in with the master whatever its own objectives; only bag
+  space for the rewards (`QuestRewardsFit`) and daily/weekly limits stop it.
+- `RewardQuest` / `CanRewardQuest` take the chosen reward's **item id**, not
+  its index (`BestRewardItem`).
+- Bot-aware edits also exist in Map, Group, LFG and Player code (grep `IsBot`).
+
+## Porting a feature from mod-playerbots
+
+1. Find it in the reference: actions in `src/Ai/Base/Actions`, strategies and
+   triggers in `src/Ai/Base/Strategy|Trigger`, gear/spell init in
+   `src/Bot/Factory/PlayerbotFactory.cpp`, config in `conf/playerbots.conf.dist`
+   (`AiPlayerbot.*` keys).
+2. Rewrite it for 5.4.8 APIs here. Do not copy WotLK assumptions: no ranged
+   slot (bows are main hand), no ammo/keyring, specializations
+   (`ChrSpecialization`) and tiered talents instead of talent trees, MoP item
+   levels (~460+ at 90).
+3. Config keys use the `Playerbots.*` prefix, loaded in
+   `PlayerbotMgr::LoadConfig`, documented in `conf/playerbots.conf.dist`.
+4. Update `COMMANDS.md`, `PORTING.md` (and README if user-facing).
+
+### Already ported
+
+- Gear candidates (`QueryItemEntries`, used by init and autogear) come from
+  `sObjectMgr->GetItemTemplateStore()` filtered in C++, not SQL on
+  item_template (it froze the world thread for seconds per bot). The callers'
+  WHERE pieces (`class`/`subclass`/`InventoryType` terms) are parsed by
+  `ParseItemClause`; items are bucketed by InventoryType; same filters, order
+  and 25-candidate cap as the old SQL. The store also holds items only in the
+  client DB2. The owner chose this over SQL after testing both.
+- `autogear [reset] [match|<quality>|<ilvl>]`: `PlayerbotMgr::AutoGearBot`.
+  Incremental slot-by-slot upgrade scored by `BotEnchants::GearValue`
+  (owner's choice: the maintenance stat weights; stats incl. heirloom scaling,
+  random suffixes as rolled / averaged over item_enchantment_template, sockets
+  as the best gem, weapon DPS x7 x primary weight for non-Int specs; enchants
+  not counted). Caps (`BotStatWeights` `CapsFor`, owner's request, from the
+  Wowhead page): pools of stats in rating units measured in % of one combat
+  rating (`GetRatingMultiplier`), tiers with a weight factor past each cap
+  (hard caps 0.2, owner's value). `ValueStats` starts from the bot's own ratings
+  (`PLAYER_FIELD_COMBAT_RATINGS`, spirit from `GetStat`) minus what the piece
+  in that slot gives (`WornStats`: stats, rolled suffix, gems, bonus, enchant). `Playerbots.AutoGear.StatWeights = 0` restores item level
+  (half for another spec's primary stat). Weighted `reset` takes the best piece,
+  init stays random among the top ilvl. Old piece to bags, never the gear bag.
+  Config `Playerbots.AutoGear.*`. `autogear bis` not ported (needs BiS tables).
+- `maintenance`: `PlayerbotMgr::MaintainBot`. Spells, proficiencies, talents,
+  glyphs, mounts, hunter pets, a bag in each empty bag slot
+  (`Playerbots.Maintenance.BagEntry`, default 82446 Royal Satchel; not 23162,
+  which is the PvP gear bag `BotGearSets` finds by entry; one slot stays free
+  while the bot has no gear bag, since init only adds it to a free slot),
+  enchants and gems, repair; keeps spec and gear. Config
+  `Playerbots.Maintenance.Command`, `Playerbots.AltMaintenance.*`.
+  Not ported: consumables, reputation, pet talents.
+- Enchants/gems (`BotEnchants.*`, called from `MaintainBot`): candidates built
+  once from game data (gem items; enchanting recipes via SkillLineAbility,
+  level from recipe rank; item enhancement consumables, level = RequiredLevel),
+  scored with `BotStatWeights.*`. Weights: the owner asked for Wowhead's MoP
+  Classic stat priorities with rank weights 1, 0.95, 0.90...
+  (`Playerbots.Maintenance.StatRankStep`); per point primary x2, stamina x1.5
+  (MoP gems 160/240/320); procs count 0.35. Gems follow
+  `WorldSession::HandleSocketOpcode` (meta toggling, socket bonus); only empty
+  sockets; sha/cogwheel sockets and profession-only gems/enchants skipped;
+  items needing reputation (`RequiredReputationFaction`) need the bot's rep.
+  Enchant sanity (owner saw +160 agi on a level 22 rogue's daggers): recipes
+  without a SkillLineAbility rank and scrolls without a required/item level
+  are dropped, and an enchant's power (`EnchantPower`, primary-stat points)
+  may not exceed `Playerbots.Maintenance.EnchantBudgetShare` x the gear's
+  budget (RandPropPoints epic col 0 at its item level). Each applied enchant
+  is logged with its source, level and power; on non-alt bots an existing
+  enchant over the cap is removed (replaced when something fits).
+  Alts: only items without an enchant are enchanted. Gems and enchants are
+  valued against the same caps, per item, from the bot's current ratings
+  (enchants without the stats of the enchant they would replace). Owner's
+  rule: caps marked `mustReach` (hit, expertise, spell hit, healer haste
+  breakpoints; not Balance's haste soft cap) are filled first in maintenance:
+  points below them count `kMustReachBoost` (10) times. Autogear does not
+  boost. Several sockets of one item are chosen together, so a cap can be
+  overshot by a gem or two.
+  The same weights drive autogear (see above). Items raised by Destiny Weaver's
+  item scaling (core `Item::GetStatTemplate`) are valued at their raised level
+  and stats: autogear's worn score, `WornStats`, the enchant budget and the gem
+  item level limit all read `GetStatTemplate()`.
+- Loot rolls (`PlayerbotAI::HandleLootRolls` / `IsLootUpgrade`), owner's rules: Need only
+  on weapons/armor the bot can use, of its class's armor type (mail/plate from 40), that beat
+  the worn piece (weaker of two ring/trinket/dual-wield slots; MH+OH for a two-hander) by
+  `Playerbots.Loot.NeedUpgradePercent` (2%) via `BotEnchants::GearValue`; stats below a
+  must-reach cap count `Playerbots.Loot.CapBoost` (1.15, not maintenance's 10, so casters do
+  not need tank items for hit). Greed on everything else. With Destiny Weaver item scaling
+  the bot rolls on the raised version (core `ItemScalingHooks::LootPreview`), since the raise
+  itself happens only once the roll is won.
+- Equip upgrades (`PlayerbotAI::EquipBagUpgrades`, AC's AutoEquipUpgradeLoot): bag items that
+  pass the same comparison as a Need roll (`CompareToWorn` + `BeatsWorn`, shared with
+  `IsLootUpgrade`; a one-hander/off-hand never replaces a worn two-hander's off hand slot) are
+  swapped in, best gain first; the old piece takes the new one's bag slot, a two-hander first
+  moves the off hand to a regular bag. Queued by `OnLootItem` / `OnQuestRewardItem` and every
+  `Playerbots.AutoEquip.Interval` s out of combat once the PvE set is on; never in BG/arena,
+  never from the gear bag. Alts: off unless `Playerbots.AutoEquip.Alts = 1` (owner's alt
+  rule); the `equip upgrades` order works on them.
+- `quests all|completed|incompleted|summary`: `PlayerbotAI::HandleQuestListCommand`
+  (AC ListQuestsAction, plus objective progress). Bare `quests` stays
+  SkyFire's accept / turn in. AC's `travel` variants need TravelMgr (absent).
+- `.playerbots add` is async (`BeginSpawnBot` + `ProcessPendingLogins`, paced
+  by `RandomBots.LoginsPerTick`); `Bot 'X' logged in.` is sent to the issuer
+  by `NotifyAddResult` when the character is loaded. SquidBots Lite parses that
+  exact text: keep the wording.
+- Alt bot = not in the random pool and not on an AccountPrefix account
+  (`PlayerbotMgr::IsAltBot`, account name checked by `IsBotAccount`, cached).
+  **Rule from the owner: nothing changes an alt unless the player orders it.**
+  No automatic init/gear/spec/teleport (`BotNeedsGearInit` returns false for
+  alts) and idle vendoring sells only greys (more only on `sell all`). Keep
+  new automatic behaviour off for alts too.
+- Automatic init (ungeared sweep / first login) runs at most once per bot per
+  session (`_autoInited`): low-level bots can stay in whites after an init.
+- A real player's logout queues every non-random bot on the **same account**
+  for logout on the next tick (`_pendingAltLogouts`, `RemoveBot`, which saves).
+  Without it, logging into an alt that was still a bot loaded its last autosave
+  (PlayerSaveInterval, ~15 min randomised; no save on map change) while the bot
+  copy kept running: alts came back inside a dungeon left 20 minutes earlier.
+
+- **Owner's rule: no server changes just to serve an addon** (SquidBots Lite).
+  A `.playerbots alts` command for My alts was added and reverted; the owner
+  manages alts by hand. Server features are for the bots themselves.
+
+## Core fixes made in SkyFire_548
+
+- `PlayerScript::OnQuestReward` hook added (bots never turned quests in with
+  the master, so chains stopped after the first quest and logs filled up).
+
+- Open world scaling hooks (`game/Miscellaneous/LocalLevelScaling.h`, for
+  mod-destiny-weaver): per-recipient creature fields in `Unit::BuildValuesUpdate`,
+  `Creature::getLevelForTarget`, armor, kill XP, quest XP/money and quest log
+  levels (`Player::RefreshQuestLogQueries`). Inert unless
+  the module installs its resolvers. Bots in a group follow the leader's switch.
+
+- Item scaling hooks (`game/Entities/Item/ItemScalingHooks.h`, for mod-destiny-weaver):
+  `Item::GetUpgradeId/SetUpgradeId` (5.4 upgrade modifier, ITEM_DYNAMIC_MODIFIERS index 2;
+  the client shows it only when ITEM_FIELD_MODIFIERS_MASK covers modifiers 0-2, i.e. 7),
+  `Item::GetStatTemplate` (Player applies stats/armor/damage from it), hooks StatTemplate,
+  ItemLoaded (end of `Item::LoadFromDB`), UpgradeHotfixList/UpgradeRowWriter (ItemUpgrade.db2
+  rows), `PlayerScript::OnLootItem` / `OnQuestRewardItem`, and `gtItemSocketCostPerLevel.dbc`
+  loaded. Owner's rule: the logic lives in the module (DestinyWeaverItems.cpp), the core only
+  keeps hooks. The `.debug itemlevel` test that proved it was removed.
+
+- Database setup (`src/server/shared/Database/DatabaseSetup/`): updates the
+  base SQL already records in `skyfire_db_updates` are skipped instead of
+  re-run (fresh characters DB failed with "Duplicate entry
+  'characters-2026_08_03_characters_00.sql'").
+
+## Line endings in SkyFire_548
+
+Some core files are stored with CRLF line endings (e.g. `Player.cpp`), most with LF.
+Keep each file's endings when editing: an editor or script that rewrites a CRLF file as
+LF makes every line differ, and the file then conflicts as a whole with any upstream
+change (the owner hit this sending the hooks to ProjectSkyfire). Python: open with
+`newline=''`; check with `grep -c $'\r' file` against `git show upstream/main:file`.
+Upstream remote: `https://github.com/ProjectSkyfire/SkyFire_548.git` (branch `main`).
+
+SkyFire_548 `main` is upstream `main` plus topic commits (database setup fix, OnQuestReward,
+open world scaling hooks, item scaling hooks), offered upstream as one PR. Rebuilt and
+force-pushed on 2026-10-31; the old history is in branch `main-before-clean-hooks`. Keep
+new core changes as small topic commits, and rebase on `upstream/main` instead of merging it.
+
+This repo's upstream is `ProjectSkyFire-Modules/mod-playerbots` (the GitHub fork parent;
+remote `upstream`). `main` = upstream `main` + topic commits + one last commit adding this
+file (project notes stay out of upstream). Branch `upstream-pr` is `main` without that
+commit; the upstream PR is opened from it. Rebuilt and force-pushed on 2026-10-31; the old
+history is in `main-before-clean-history`. New work: commit it on `main`, then cherry-pick it
+onto `upstream-pr` without CLAUDE.md changes, so the PR never carries this file. The PR needs
+the core hooks from the SkyFire_548 upstream PR.
+
+## Building and checking
+
+- Core requires **g++ 14+** (C++23), **Boost 1.91**, OpenSSL, MySQL client.
+  Ubuntu 24.04 apt only has Boost 1.83, so a full CMake configure fails there.
+- Quick check in a Linux container: syntax-only compile of changed files
+  against the core headers (works with apt's Boost 1.83):
+
+  ```sh
+  apt-get install -y g++-14 libboost-all-dev libssl-dev libmysqlclient-dev
+  INC=$(find /path/SkyFire_548/src/server /path/SkyFire_548/src/common /path/SkyFire_548/dep -type d | sed 's|^|-I|')
+  mkdir -p /tmp/gen && touch /tmp/gen/revision.h
+  g++-14 -std=c++23 -fsyntax-only -Wall -Wextra -I/tmp/gen -Isrc $INC -I/usr/include/mysql src/PlayerbotMgr.cpp
+  ```
+
+- Real Windows builds: run the SkyFire-build workflow (Actions tab, or push a
+  `v*` tag there).
+- There is no server or database in the cloud container: runtime behaviour
+  cannot be tested there. Say so when reporting.
+
+## Code style
+
+Match the surrounding code: 4-space indent, Allman braces, `SF_LOG_INFO("modules",
+"[mod-playerbots] ...")` for logs, short comments that explain why, core types
+(`uint32`, `Player*`, `sObjectMgr`, `WorldDatabase.PQuery`).
