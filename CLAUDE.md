@@ -82,12 +82,13 @@ anonymous namespace; free functions there are file-local.
 
 ### Already ported
 
-- **Branch `gear-in-memory`** (test branch, owner compares it with `main`):
-  `QueryItemEntries` filters `sObjectMgr->GetItemTemplateStore()` in C++
-  instead of SQL on item_template (same filters, order and 25-candidate cap;
-  callers' WHERE pieces parsed by `ParseItemClause`). The store also holds
-  items that exist only in the client DB2, so the pool can be larger. `main`
-  keeps SQL until the owner picks one.
+- Gear candidates (`QueryItemEntries`, used by init and autogear) come from
+  `sObjectMgr->GetItemTemplateStore()` filtered in C++, not SQL on
+  item_template (it froze the world thread for seconds per bot). The callers'
+  WHERE pieces (`class`/`subclass`/`InventoryType` terms) are parsed by
+  `ParseItemClause`; items are bucketed by InventoryType; same filters, order
+  and 25-candidate cap as the old SQL. The store also holds items only in the
+  client DB2. The owner chose this over SQL after testing both.
 - `autogear [reset] [match|<quality>|<ilvl>]`: `PlayerbotMgr::AutoGearBot`.
   Incremental slot-by-slot upgrade scored by item level (half for another
   spec's primary stat); old piece to bags, never the gear bag. Config
