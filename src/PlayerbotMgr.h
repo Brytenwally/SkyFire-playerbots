@@ -315,6 +315,7 @@ private:
     bool _autoGearAltBots = true;
     int _autoGearQualityLimit = 4;    // epic, matches Gear.MaxQuality
     uint32 _autoGearItemLevelLimit = 0; // 0 = no limit
+    bool _autoGearStatWeights = true;
     bool _maintenanceCommand = true;
     bool _altMaintenanceSpells = true;
     bool _altMaintenanceTalents = true;

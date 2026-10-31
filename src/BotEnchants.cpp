@@ -16,7 +16,9 @@
 #include "BotStatWeights.h"
 
 #include "DBCStores.h"
+#include "DatabaseEnv.h"
 #include "Item.h"
+#include "ItemEnchantmentMgr.h"
 #include "ItemPrototype.h"
 #include "Log.h"
 #include "ObjectMgr.h"
@@ -27,6 +29,7 @@
 #include <algorithm>
 #include <cctype>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace
@@ -50,6 +53,7 @@ namespace
         uint32 skill;      // profession the bot itself needs (item RequiredSkill), 0 = none
         uint32 skillRank;
         bool prismatic;    // adds a socket (belt buckle) instead of a permanent enchant
+        ItemTemplate const* source; // scroll / kit / inscription item, nullptr for recipes
     };
 
     bool IsJunkName(char const* raw)
@@ -171,7 +175,7 @@ namespace
                     continue;
                 uint32 const level = proto->RequiredLevel ? proto->RequiredLevel
                     : std::clamp<uint32>(proto->ItemLevel, 1, 90);
-                enchants.push_back({ spell, enchant, level, proto->RequiredSkill, proto->RequiredSkillRank, prismatic });
+                enchants.push_back({ spell, enchant, level, proto->RequiredSkill, proto->RequiredSkillRank, prismatic, proto });
             }
         }
 
@@ -197,7 +201,7 @@ namespace
             bool prismatic = false;
             if (!FindEnchantEffect(spell, enchant, prismatic))
                 continue;
-            enchants.push_back({ spell, enchant, SkillRankToLevel(rank), 0, 0, prismatic });
+            enchants.push_back({ spell, enchant, SkillRankToLevel(rank), 0, 0, prismatic, nullptr });
         }
         SF_LOG_INFO("modules", "[mod-playerbots] Enchants: %u enchant candidate(s).", uint32(enchants.size()));
         return enchants;
@@ -325,6 +329,13 @@ namespace
         return score;
     }
 
+    // Items sold for reputation (shoulder inscriptions, some gems) need it.
+    bool HasReputation(Player* bot, ItemTemplate const* proto)
+    {
+        return !proto || !proto->RequiredReputationFaction
+            || bot->GetReputationRank(proto->RequiredReputationFaction) >= ReputationRank(proto->RequiredReputationRank);
+    }
+
     bool HasSkill(Player* bot, uint32 skill, uint32 rank)
     {
         return !skill || (bot->HasSkill(skill) && bot->GetSkillValue(skill) >= rank);
@@ -335,7 +346,7 @@ namespace
     {
         uint32 const level = bot->getLevel();
         SpellItemEnchantmentEntry const* enchant = c.enchant;
-        if (c.level > level || !HasSkill(bot, c.skill, c.skillRank))
+        if (c.level > level || !HasSkill(bot, c.skill, c.skillRank) || !HasReputation(bot, c.source))
             return false;
         if (enchant->requiredMinLevel > level || (enchant->requiredMaxLevel && enchant->requiredMaxLevel < level))
             return false;
@@ -392,7 +403,7 @@ namespace
             ItemTemplate const* proto = gem.proto;
             if (proto->RequiredLevel > level || proto->ItemLevel > itemLevel)
                 continue;
-            if (!HasSkill(bot, proto->RequiredSkill, proto->RequiredSkillRank))
+            if (!HasSkill(bot, proto->RequiredSkill, proto->RequiredSkillRank) || !HasReputation(bot, proto))
                 continue;
             if (meta && bot->CanEquipUniqueItem(proto, item->GetSlot(), 1) != EQUIP_ERR_OK)
                 continue;
@@ -583,4 +594,188 @@ BotEnchants::Result BotEnchants::Apply(Player* bot, uint32 specId, bool enchants
             result.gems += GemItem(bot, item, weights, gemScores);
     }
     return result;
+}
+
+namespace
+{
+    // item_enchantment_template: the random properties / suffixes an item can roll.
+    struct RandomEnchantChance
+    {
+        uint32 enchant;
+        float chance;
+    };
+
+    std::unordered_map<uint32, std::vector<RandomEnchantChance>> const& RandomEnchantTable()
+    {
+        static std::unordered_map<uint32, std::vector<RandomEnchantChance>> table;
+        static bool loaded = false;
+        if (loaded)
+            return table;
+        loaded = true;
+        if (QueryResult result = WorldDatabase.Query("SELECT entry, ench, chance FROM item_enchantment_template"))
+        {
+            do
+            {
+                Field* fields = result->Fetch();
+                float const chance = fields[2].GetFloat();
+                if (chance > 0.000001f && chance <= 100.0f)
+                    table[fields[0].GetUInt32()].push_back({ fields[1].GetUInt32(), chance });
+            } while (result->NextRow());
+        }
+        return table;
+    }
+
+    // A random suffix's stats have no amount: allocation * the item's suffix factor.
+    float ScoreSuffix(ItemRandomSuffixEntry const* suffix, uint32 suffixFactor, BotStatWeights const& weights)
+    {
+        if (!suffix)
+            return 0.0f;
+        float score = 0.0f;
+        for (uint8 k = 0; k < 5; ++k)
+        {
+            SpellItemEnchantmentEntry const* enchant = sSpellItemEnchantmentStore.LookupEntry(suffix->enchant_id[k]);
+            if (!enchant)
+                continue;
+            for (uint8 i = 0; i < MAX_ITEM_ENCHANTMENT_EFFECTS; ++i)
+            {
+                if (enchant->type[i] != ITEM_ENCHANTMENT_TYPE_STAT)
+                    continue;
+                uint32 const amount = enchant->amount[i] ? enchant->amount[i]
+                    : suffix->prefix[k] * suffixFactor / 10000;
+                score += weights.ForItemMod(enchant->spellid[i]) * float(amount);
+            }
+        }
+        return score;
+    }
+
+    float ScoreRandomProperty(uint32 propertyId, Player* bot, BotStatWeights const& weights)
+    {
+        ItemRandomPropertiesEntry const* property = sItemRandomPropertiesStore.LookupEntry(propertyId);
+        if (!property)
+            return 0.0f;
+        float score = 0.0f;
+        for (uint8 i = 0; i < MAX_ITEM_ENCHANTMENT_EFFECTS; ++i)
+            score += ScoreEnchant(sSpellItemEnchantmentStore.LookupEntry(property->enchant_id[i]), bot, weights);
+        return score;
+    }
+
+    // Worn item: the stats it rolled. Candidate: the average of what it can roll.
+    float ScoreRandomStats(Player* bot, ItemTemplate const* proto, Item* item, BotStatWeights const& weights)
+    {
+        if (item)
+        {
+            int32 const id = item->GetItemRandomPropertyId();
+            if (id > 0)
+                return ScoreRandomProperty(uint32(id), bot, weights);
+            if (id < 0)
+                return ScoreSuffix(sItemRandomSuffixStore.LookupEntry(uint32(-id)), item->GetItemSuffixFactor(), weights);
+            return 0.0f;
+        }
+
+        uint32 const group = proto->RandomProperty ? uint32(proto->RandomProperty) : uint32(proto->RandomSuffix);
+        if (!group)
+            return 0.0f;
+        auto const& table = RandomEnchantTable();
+        auto it = table.find(group);
+        if (it == table.end())
+            return 0.0f;
+        uint32 const suffixFactor = proto->RandomSuffix ? GenerateEnchSuffixFactor(proto->ItemId) : 0;
+        float total = 0.0f;
+        float chances = 0.0f;
+        for (RandomEnchantChance const& roll : it->second)
+        {
+            float const score = proto->RandomProperty ? ScoreRandomProperty(roll.enchant, bot, weights)
+                : ScoreSuffix(sItemRandomSuffixStore.LookupEntry(roll.enchant), suffixFactor, weights);
+            total += score * roll.chance;
+            chances += roll.chance;
+        }
+        return chances > 0.0f ? total / chances : 0.0f;
+    }
+
+    // Gems sorted best first for one spec, so a socket's estimate stops early.
+    std::vector<std::pair<float, GemCandidate const*>> const& RankedGems(Player* bot, uint32 specId,
+        BotStatWeights const& weights)
+    {
+        static std::unordered_map<uint32, std::vector<std::pair<float, GemCandidate const*>>> cache;
+        uint32 const key = specId * 16 + bot->getClass();
+        auto it = cache.find(key);
+        if (it != cache.end())
+            return it->second;
+        std::vector<std::pair<float, GemCandidate const*>> ranked;
+        for (GemCandidate const& gem : GemCandidates())
+            if (float const score = ScoreEnchant(gem.enchant, bot, weights); score > 0.0f)
+                ranked.emplace_back(score, &gem);
+        std::sort(ranked.begin(), ranked.end(),
+            [](auto const& a, auto const& b) { return a.first > b.first; });
+        return cache.emplace(key, std::move(ranked)).first->second;
+    }
+
+    // Each socket counted as the best gem maintenance could put in it.
+    float ScoreSockets(Player* bot, uint32 specId, ItemTemplate const* proto, BotStatWeights const& weights)
+    {
+        float score = 0.0f;
+        auto const& ranked = RankedGems(bot, specId, weights);
+        for (uint8 i = 0; i < MAX_GEM_SOCKETS; ++i)
+        {
+            uint32 const color = proto->Socket[i].Color;
+            if (!color || (color & (SOCKET_COLOR_HYDRAULIC | SOCKET_COLOR_COGWHEEL)))
+                continue;
+            bool const metaSocket = color == SOCKET_COLOR_META;
+            for (auto const& [gemScore, gem] : ranked)
+            {
+                ItemTemplate const* gemProto = gem->proto;
+                if ((gem->color == SOCKET_COLOR_META) != metaSocket)
+                    continue;
+                if (gemProto->RequiredLevel > bot->getLevel() || gemProto->ItemLevel > proto->ItemLevel)
+                    continue;
+                if (!HasSkill(bot, gemProto->RequiredSkill, gemProto->RequiredSkillRank) || !HasReputation(bot, gemProto))
+                    continue;
+                score += gemScore;
+                break;
+            }
+        }
+        return score;
+    }
+}
+
+float BotEnchants::GearValue(Player* bot, uint32 specId, ItemTemplate const* proto, Item* item)
+{
+    if (!bot || !proto)
+        return 0.0f;
+    BotStatWeights const& weights = BotStatWeightTable::For(specId, bot->getClass());
+
+    float score = 0.0f;
+
+    // Same stat source as Player::_ApplyItemBonuses (heirlooms scale with level).
+    ScalingStatDistributionEntry const* ssd = proto->ScalingStatDistribution
+        ? sScalingStatDistributionStore.LookupEntry(proto->ScalingStatDistribution) : nullptr;
+    ScalingStatValuesEntry const* ssv = nullptr;
+    if (ssd)
+        ssv = sScalingStatValuesStore.LookupEntry(std::min<uint32>(bot->getLevel(), ssd->MaxLevel));
+    for (uint8 i = 0; i < MAX_ITEM_PROTO_STATS; ++i)
+    {
+        if (ssd && ssv)
+        {
+            if (ssd->StatMod[i] < 0)
+                continue;
+            int32 const value = int32(ssv->GetStatMultiplier(proto->InventoryType) * ssd->Modifier[i]) / 10000;
+            score += weights.ForItemMod(uint32(ssd->StatMod[i])) * float(value);
+        }
+        else
+            score += weights.ForItemMod(proto->ItemStat[i].ItemStatType) * float(proto->ItemStat[i].ItemStatValue);
+    }
+
+    score += ScoreRandomStats(bot, proto, item, weights);
+    score += ScoreSockets(bot, specId, proto, weights);
+
+    // Weapon damage drives physical specs' abilities: 1 DPS = 14 attack power,
+    // and one point of strength or agility is 2 attack power.
+    if (proto->Class == ITEM_CLASS_WEAPON && !weights.Get(BOT_STAT_INTELLECT))
+    {
+        float const primary = std::max(weights.Get(BOT_STAT_STRENGTH), weights.Get(BOT_STAT_AGILITY));
+        score += proto->DPS * 7.0f * primary;
+    }
+
+    // Breaks ties between pieces with the same weighted stats.
+    return score + float(proto->ItemLevel) * 0.01f;
 }

@@ -295,11 +295,23 @@ Playerbots.Gear.MaxQuality = 4
 #        Description: Highest item level autogear may equip (0 = no limit).
 #                     Gear is still limited to items the bot's level can use.
 #        Default:     0
+#
+#    Playerbots.AutoGear.StatWeights
+#        Description: How autogear scores a piece. 1 = the spec's stat weights
+#                     (the same ones maintenance uses for enchants and gems):
+#                     weighted stats, random suffixes (as rolled on worn
+#                     gear, their average on candidates), each socket as the
+#                     best gem for it, and weapon DPS for physical specs;
+#                     `autogear reset` then takes the best piece instead of a
+#                     random pick among the top ones. 0 = item level (half
+#                     for a piece with another spec's primary stat).
+#        Default:     1
 
 Playerbots.AutoGear.Command = 1
 Playerbots.AutoGear.AltBots = 1
 Playerbots.AutoGear.QualityLimit = 4
 Playerbots.AutoGear.ItemLevelLimit = 0
+Playerbots.AutoGear.StatWeights = 1
 
 #
 #    Playerbots.Maintenance.Command
@@ -322,7 +334,9 @@ Playerbots.AutoGear.ItemLevelLimit = 0
 #                     loses StatRankStep. Gems take the socket bonus into
 #                     account. Enchants needing a profession (ring enchants,
 #                     secret inscriptions, tinkers) and profession gems are
-#                     skipped; gems need an item level up to the gear's.
+#                     skipped; gems need an item level up to the gear's, and
+#                     items sold for reputation (inscriptions, some gems) need
+#                     the bot to have that reputation.
 #                     Hit/expertise caps are not modelled. An existing enchant
 #                     is replaced only by a better one; gems never replace
 #                     socketed ones.

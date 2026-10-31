@@ -92,9 +92,14 @@ anonymous namespace; free functions there are file-local.
   and 25-candidate cap as the old SQL. The store also holds items only in the
   client DB2. The owner chose this over SQL after testing both.
 - `autogear [reset] [match|<quality>|<ilvl>]`: `PlayerbotMgr::AutoGearBot`.
-  Incremental slot-by-slot upgrade scored by item level (half for another
-  spec's primary stat); old piece to bags, never the gear bag. Config
-  `Playerbots.AutoGear.*`. `autogear bis` not ported (needs BiS tables).
+  Incremental slot-by-slot upgrade scored by `BotEnchants::GearValue`
+  (owner's choice: the maintenance stat weights; stats incl. heirloom scaling,
+  random suffixes as rolled / averaged over item_enchantment_template, sockets
+  as the best gem, weapon DPS x7 x primary weight for non-Int specs; enchants
+  not counted). `Playerbots.AutoGear.StatWeights = 0` restores item level
+  (half for another spec's primary stat). Weighted `reset` takes the best piece,
+  init stays random among the top ilvl. Old piece to bags, never the gear bag.
+  Config `Playerbots.AutoGear.*`. `autogear bis` not ported (needs BiS tables).
 - `maintenance`: `PlayerbotMgr::MaintainBot`. Spells, proficiencies, talents,
   glyphs, mounts, hunter pets, a bag in each empty bag slot
   (`Playerbots.Maintenance.BagEntry`, default 82446 Royal Satchel; not 23162,
@@ -111,9 +116,10 @@ anonymous namespace; free functions there are file-local.
   (`Playerbots.Maintenance.StatRankStep`); per point primary x2, stamina x1.5
   (MoP gems 160/240/320); procs count 0.35. Gems follow
   `WorldSession::HandleSocketOpcode` (meta toggling, socket bonus); only empty
-  sockets; sha/cogwheel sockets and profession-only gems/enchants skipped.
+  sockets; sha/cogwheel sockets and profession-only gems/enchants skipped;
+  items needing reputation (`RequiredReputationFaction`) need the bot's rep.
   Alts: only items without an enchant are enchanted. Caps not modelled;
-  `BotStatWeights` could also feed autogear later.
+  the same weights drive autogear (see above).
 - `quests all|completed|incompleted|summary`: `PlayerbotAI::HandleQuestListCommand`
   (AC ListQuestsAction, plus objective progress). Bare `quests` stays
   SkyFire's accept / turn in. AC's `travel` variants need TravelMgr (absent).

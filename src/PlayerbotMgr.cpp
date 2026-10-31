@@ -163,6 +163,7 @@ void PlayerbotMgr::LoadConfig()
     _autoGearQualityLimit = std::max(int(ITEM_QUALITY_NORMAL), std::min(int(ITEM_QUALITY_LEGENDARY),
         sConfigMgr->GetIntDefault("Playerbots.AutoGear.QualityLimit", int(ITEM_QUALITY_EPIC))));
     _autoGearItemLevelLimit = uint32(std::max(0, sConfigMgr->GetIntDefault("Playerbots.AutoGear.ItemLevelLimit", 0)));
+    _autoGearStatWeights = sConfigMgr->GetBoolDefault("Playerbots.AutoGear.StatWeights", true);
     _maintenanceCommand = sConfigMgr->GetBoolDefault("Playerbots.Maintenance.Command", true);
     _altMaintenanceSpells = sConfigMgr->GetBoolDefault("Playerbots.AltMaintenance.Spells", true);
     _altMaintenanceTalents = sConfigMgr->GetBoolDefault("Playerbots.AltMaintenance.Talents", true);
@@ -2019,6 +2020,8 @@ namespace
         uint32 maxItemLevel = 0; // 0 = only the level-based ceiling
         bool incremental = false; // a slot changes only when the pick beats the worn piece
         uint32 changed = 0;       // slots an incremental roll upgraded
+        bool weighted = false;    // score with the spec's stat weights (autogear)
+        uint32 specId = 0;
     };
     GearRoll g_gearRoll;
 
@@ -2742,13 +2745,16 @@ namespace
         return bot->EquipNewItem(dest, entry, true) != nullptr;
     }
 
-    // Autogear's upgrade yardstick: item level, halved for a piece that carries
-    // another primary stat but not the one the spec wants (an earlier spec's
-    // gear). Items the bot cannot use score below an empty slot.
-    float GearScore(Player* bot, ItemTemplate const* proto, uint32 primaryStat)
+    // Autogear's upgrade yardstick: the spec's weighted stats (BotEnchants::
+    // GearValue) or, with Playerbots.AutoGear.StatWeights = 0, item level halved
+    // for a piece that carries another primary stat but not the one the spec
+    // wants. Items the bot cannot use score below an empty slot.
+    float GearScore(Player* bot, ItemTemplate const* proto, uint32 primaryStat, Item* item = nullptr)
     {
         if (!proto || bot->CanUseItem(proto) != EQUIP_ERR_OK)
             return -1.0f;
+        if (g_gearRoll.weighted)
+            return BotEnchants::GearValue(bot, g_gearRoll.specId, proto, item);
 
         float const score = float(proto->ItemLevel);
         if (!primaryStat)
@@ -2803,7 +2809,7 @@ namespace
     {
         Item* worn = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
         uint32 const wornEntry = worn ? worn->GetEntry() : 0;
-        float const wornScore = worn ? GearScore(bot, worn->GetTemplate(), primaryStat) : -1.0f;
+        float const wornScore = worn ? GearScore(bot, worn->GetTemplate(), primaryStat, worn) : -1.0f;
 
         uint32 const passStats[2] = { primaryStat, 0 };
         int const passes = primaryStat && g_gearPool != GearPool::PvpOnly ? 2 : 1;
@@ -2882,11 +2888,25 @@ namespace
             if (entries.empty())
                 continue;
 
-            size_t const pool = std::min(entries.size(), kRandomPool);
-            for (size_t i = 0; i + 1 < pool; ++i)
+            if (g_gearRoll.weighted)
             {
-                size_t const j = i + size_t(std::rand() % int(pool - i));
-                std::swap(entries[i], entries[j]);
+                // autogear reset: best weighted piece first, no random pick.
+                std::vector<std::pair<float, uint32>> scored;
+                for (uint32 entry : entries)
+                    scored.emplace_back(GearScore(bot, sObjectMgr->GetItemTemplate(entry), primaryStat), entry);
+                std::stable_sort(scored.begin(), scored.end(),
+                    [](auto const& a, auto const& b) { return a.first > b.first; });
+                for (size_t i = 0; i < scored.size(); ++i)
+                    entries[i] = scored[i].second;
+            }
+            else
+            {
+                size_t const pool = std::min(entries.size(), kRandomPool);
+                for (size_t i = 0; i + 1 < pool; ++i)
+                {
+                    size_t const j = i + size_t(std::rand() % int(pool - i));
+                    std::swap(entries[i], entries[j]);
+                }
             }
 
             for (uint32 entry : entries)
@@ -3554,6 +3574,8 @@ uint32 PlayerbotMgr::AutoGearBot(Player* bot, int maxItemQuality, uint32 maxItem
     uint32 result = 0;
     {
         ScopedGearRoll roll(maxItemLevel, !reset);
+        g_gearRoll.weighted = _autoGearStatWeights;
+        g_gearRoll.specId = specId;
         if (reset)
         {
             GearBotSets(bot, role, specId, qualityFloor, qualityCap);
