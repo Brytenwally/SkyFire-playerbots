@@ -223,6 +223,13 @@ open world scaling hooks, item scaling hooks), offered upstream as one PR. Rebui
 force-pushed on 2026-10-31; the old history is in branch `main-before-clean-hooks`. Keep
 new core changes as small topic commits, and rebase on `upstream/main` instead of merging it.
 
+This repo's upstream is `ProjectSkyFire-Modules/mod-playerbots` (the GitHub fork parent;
+remote `upstream`). Branch `upstream-pr` holds the fork's work as 7 topic commits on
+upstream `main` without CLAUDE.md (project notes stay out of upstream), built on
+2026-10-31; its code matches `main`. `main` keeps its own history. New work for upstream:
+commit it on `main` as usual, then add it to `upstream-pr` as a topic commit (cherry-pick
+without CLAUDE.md changes). The PR needs the core hooks from the SkyFire_548 upstream PR.
+
 ## Building and checking
 
 - Core requires **g++ 14+** (C++23), **Boost 1.91**, OpenSSL, MySQL client.

@@ -129,7 +129,7 @@ namespace
     }
 
     // Stat caps from the same Wowhead page. Past a hard cap a point is worth little
-    // (kOverCap = 0.2 of its weight, owner's value); past a soft cap or haste breakpoint it drops to about
+    // (kOverCap = 0.2 of its weight); past a soft cap or haste breakpoint it drops to about
     // the next stat down the list.
     constexpr float kOverCap = 0.2f;
     constexpr uint32 Bit(BotStat stat) { return 1u << stat; }
