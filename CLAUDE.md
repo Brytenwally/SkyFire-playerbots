@@ -210,6 +210,11 @@ change (the owner hit this sending the hooks to ProjectSkyfire). Python: open wi
 `newline=''`; check with `grep -c $'\r' file` against `git show upstream/main:file`.
 Upstream remote: `https://github.com/ProjectSkyfire/SkyFire_548.git` (branch `main`).
 
+SkyFire_548 `main` is upstream `main` plus topic commits (database setup fix, OnQuestReward,
+open world scaling hooks, item scaling hooks), offered upstream as one PR. Rebuilt and
+force-pushed on 2026-10-31; the old history is in branch `main-before-clean-hooks`. Keep
+new core changes as small topic commits, and rebase on `upstream/main` instead of merging it.
+
 ## Building and checking
 
 - Core requires **g++ 14+** (C++23), **Boost 1.91**, OpenSSL, MySQL client.
