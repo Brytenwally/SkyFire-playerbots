@@ -248,7 +248,7 @@ Send these as the message text (case-insensitive).
 | `quests completed` / `quests co` | Only the quests ready to turn in, then the total. |
 | `quests summary` | Only the total. (AC's bare `quests` is this; here bare `quests` stays accept / turn in.) |
 
-Grouped bots on the `follow` pack (`-quests,-grind`) do **not** path to givers/objectives alone. When the master accepts a quest, eligible bots on the same map auto-add it to their quest log so they share progress while staying in formation. Auto turn-in while following is not enabled.
+Grouped bots on the `follow` pack (`-quests,-grind`) do **not** path to givers/objectives alone. When the master accepts a quest, eligible bots on the same map auto-add it to their quest log so they share progress while staying in formation. When the master turns a quest in, bots on the same map that have it complete and stand within 40 yards of the NPC or object turn it in too (reward picked like `quests`), so the next quest of a chain opens for them. A bot that cannot follow whispers why: `Can't take [quest]: my quest log is full / my level is too low / I haven't done the quest before it / no room in my bags for its item`, or `Can't turn in [quest]: my objectives are not done / I'm too far from <NPC> / no room in my bags for the reward`. Bots already done with a quest, or of another class or race, stay silent.
 
 Travel is cancelled by combat, `follow`, `stay`, `flee`, `summon`, or `reset`. Arrival resumes follow when `nc +follow` is on. Same-map only (no TravelNode / portals yet).
 

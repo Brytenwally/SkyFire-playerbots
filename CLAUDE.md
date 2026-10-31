@@ -56,6 +56,10 @@ anonymous namespace; free functions there are file-local.
   `AddModulesScripts()` calls `Add<name>Scripts()`. See `modules/README.md`.
 - `WorldSession::IsBot()` / socketless bot sessions.
 - `PlayerScript::OnUpdate(Player*, uint32)` via `ScriptMgr::OnPlayerUpdate`.
+- `PlayerScript::OnQuestAdd` / `OnQuestReward` (end of `Player::AddQuest` /
+  `Player::RewardQuest`): grouped bots copy the master's accepts and turn-ins
+  (`PlayerbotAI::MirrorQuestAccept` / `MirrorQuestReward`, called from
+  `PlayerbotScripts.cpp`).
 - Bot-aware edits also exist in Map, Group, LFG and Player code (grep `IsBot`).
 
 ## Porting a feature from mod-playerbots
@@ -99,6 +103,9 @@ anonymous namespace; free functions there are file-local.
   session (`_autoInited`): low-level bots can stay in whites after an init.
 
 ## Core fixes made in SkyFire_548
+
+- `PlayerScript::OnQuestReward` hook added (bots never turned quests in with
+  the master, so chains stopped after the first quest and logs filled up).
 
 - Database setup (`src/server/shared/Database/DatabaseSetup/`): updates the
   base SQL already records in `skyfire_db_updates` are skipped instead of

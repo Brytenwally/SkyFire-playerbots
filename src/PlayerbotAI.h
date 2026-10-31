@@ -27,6 +27,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+class Object;
 class Player;
 class Unit;
 class Creature;
@@ -83,6 +84,10 @@ public:
     void ResetStrategiesToRoleDefaults();
     // Re-check which gear set to wear on the next tick (after a re-gear).
     void ResetGearSet() { _gearSetPvp = -1; }
+    // The master accepted / turned in a quest: the bot does the same when it
+    // can, and whispers the master why when it cannot.
+    void MirrorQuestAccept(Player* master, Quest const* quest);
+    void MirrorQuestReward(Player* master, Quest const* quest, Object* questGiver);
     // Skip a spell that just failed to cast so the rotation moves on to its next pick.
     void BackOffSpell(uint32 spellId);
     bool IsSpellBackedOff(uint32 spellId) const;

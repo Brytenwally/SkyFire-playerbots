@@ -728,6 +728,14 @@ namespace
 
 namespace
 {
+    std::string QuestLink(Quest const* quest)
+    {
+        std::ostringstream out;
+        out << "|cffffff00|Hquest:" << quest->GetQuestId() << ':' << quest->GetQuestLevel() << "|h["
+            << quest->GetTitle() << "]|h|r";
+        return out.str();
+    }
+
     // An objective's name: its own text, else what it asks for.
     std::string QuestObjectiveLabel(QuestObjective const* objective)
     {
@@ -755,6 +763,74 @@ namespace
     }
 }
 
+void PlayerbotAI::MirrorQuestAccept(Player* master, Quest const* quest)
+{
+    if (!master || !quest || !_bot)
+        return;
+
+    uint32 const questId = quest->GetQuestId();
+    // Already on it or done with it, or a quest of another class / race: nothing to say.
+    if (_bot->GetQuestStatus(questId) != QUEST_STATUS_NONE || _bot->GetQuestRewardStatus(questId)
+        || !_bot->SatisfyQuestClass(quest, false) || !_bot->SatisfyQuestRace(quest, false))
+        return;
+
+    if (_bot->CanTakeQuest(quest, false) && _bot->CanAddQuest(quest, false))
+    {
+        _bot->AddQuest(quest, nullptr);
+        return;
+    }
+
+    // Tell the master, so a bot falling behind on a chain is not a mystery.
+    char const* reason = "I can't take it";
+    if (_bot->FindQuestSlot(0) >= MAX_QUEST_LOG_SIZE)
+        reason = "my quest log is full";
+    else if (!_bot->SatisfyQuestLevel(quest, false))
+        reason = "my level is too low";
+    else if (!_bot->SatisfyQuestPreviousQuest(quest, false))
+        reason = "I haven't done the quest before it";
+    else if (!_bot->CanAddQuest(quest, false))
+        reason = "no room in my bags for its item";
+    ReplyTo(master, "Can't take " + QuestLink(quest) + ": " + reason + ".");
+}
+
+void PlayerbotAI::MirrorQuestReward(Player* master, Quest const* quest, Object* questGiver)
+{
+    if (!master || !quest || !_bot)
+        return;
+
+    QuestStatus const status = _bot->GetQuestStatus(quest->GetQuestId());
+    if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_REWARDED)
+        return;
+
+    if (status != QUEST_STATUS_COMPLETE || !_bot->CanRewardQuest(quest, false))
+    {
+        ReplyTo(master, "Can't turn in " + QuestLink(quest) + " yet: my objectives are not done.");
+        return;
+    }
+
+    // Turned in to an NPC or an object: the bot must be near it as well. An
+    // item or the master itself (auto-complete) needs no place.
+    WorldObject* place = nullptr;
+    if (questGiver && (questGiver->GetTypeId() == TypeID::TYPEID_UNIT
+        || questGiver->GetTypeId() == TypeID::TYPEID_GAMEOBJECT))
+        place = static_cast<WorldObject*>(questGiver);
+    constexpr float TURN_IN_RANGE = 40.0f;
+    if (place && !_bot->IsWithinDistInMap(place, TURN_IN_RANGE))
+    {
+        ReplyTo(master, "Can't turn in " + QuestLink(quest) + ": I'm too far from " + place->GetName() + ".");
+        return;
+    }
+
+    uint32 const reward = BestRewardIndex(quest);
+    if (!_bot->CanRewardQuest(quest, reward, false))
+    {
+        ReplyTo(master, "Can't turn in " + QuestLink(quest) + ": no room in my bags for the reward.");
+        return;
+    }
+
+    _bot->RewardQuest(quest, reward, place ? static_cast<Object*>(place) : static_cast<Object*>(_bot), true);
+}
+
 bool PlayerbotAI::HandleQuestListCommand(Player* from, std::string const& args)
 {
     bool showIncomplete = false;
@@ -772,8 +848,7 @@ bool PlayerbotAI::HandleQuestListCommand(Player* from, std::string const& args)
     auto questLine = [this](Quest const* quest, bool complete) -> std::string
     {
         std::ostringstream out;
-        out << "|cffffff00|Hquest:" << quest->GetQuestId() << ':' << quest->GetQuestLevel() << "|h["
-            << quest->GetTitle() << "]|h|r";
+        out << QuestLink(quest);
         if (complete)
             return out.str();
 
