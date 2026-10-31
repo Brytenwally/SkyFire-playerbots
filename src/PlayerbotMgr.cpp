@@ -167,6 +167,8 @@ void PlayerbotMgr::LoadConfig()
     _altMaintenanceGlyphs = sConfigMgr->GetBoolDefault("Playerbots.AltMaintenance.Glyphs", true);
     _altMaintenanceMounts = sConfigMgr->GetBoolDefault("Playerbots.AltMaintenance.Mounts", true);
     _altMaintenancePet = sConfigMgr->GetBoolDefault("Playerbots.AltMaintenance.Pet", true);
+    _altMaintenanceBags = sConfigMgr->GetBoolDefault("Playerbots.AltMaintenance.Bags", true);
+    _maintenanceBagEntry = uint32(std::max(0, sConfigMgr->GetIntDefault("Playerbots.Maintenance.BagEntry", 82446)));
 
     // Optional numeric thresholds (strategies themselves are runtime co/nc only).
     _restHealthPct = float(sConfigMgr->GetFloatDefault("Playerbots.Rest.HealthPct", 50.0f));
@@ -3105,6 +3107,26 @@ namespace
     {
     }
 
+    // AC maintenance InitBags: a bag in every empty bag slot (bags already there stay).
+    uint32 FillEmptyBagSlots(Player* bot, uint32 bagEntry)
+    {
+        if (!bagEntry || !sObjectMgr->GetItemTemplate(bagEntry))
+            return 0;
+
+        uint32 added = 0;
+        for (uint8 slot = INVENTORY_SLOT_BAG_START; slot < INVENTORY_SLOT_BAG_END; ++slot)
+        {
+            if (bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+                continue;
+            uint16 dest = 0;
+            if (bot->CanEquipNewItem(slot, dest, bagEntry, false) != EQUIP_ERR_OK)
+                continue;
+            if (bot->EquipNewItem(dest, bagEntry, true))
+                ++added;
+        }
+        return added;
+    }
+
     // Stampede summons the pets in Call Pet slots 2-5; empty slots only clone the
     // current pet, so give each free slot its own non-exotic beast.
     void FillHunterPetSlots(Player* bot)
@@ -3543,14 +3565,17 @@ void PlayerbotMgr::MaintainBot(Player* bot)
         LearnRidingAndMounts(bot);
     if (allowed(_altMaintenancePet))
         FillHunterPetSlots(bot);
+    uint32 bagsAdded = 0;
+    if (allowed(_altMaintenanceBags))
+        bagsAdded = FillEmptyBagSlots(bot, _maintenanceBagEntry);
 
     bot->DurabilityRepairAll(false, 1.0f, false);
     bot->SendTalentsInfoData();
     bot->SaveToDB();
 
-    SF_LOG_INFO("modules", "[mod-playerbots] Maintained bot '%s' (level %u %s, spec %s%s).",
+    SF_LOG_INFO("modules", "[mod-playerbots] Maintained bot '%s' (level %u %s, spec %s%s, %u bag(s) added).",
         bot->GetName().c_str(), bot->getLevel(), SafeClassName(bot->getClass()), SpecName(specId),
-        alt ? ", alt bot" : "");
+        alt ? ", alt bot" : "", bagsAdded);
 }
 
 uint32 PlayerbotMgr::EnqueueInitializeAllBots(int roleOverride, uint32 specOverride,

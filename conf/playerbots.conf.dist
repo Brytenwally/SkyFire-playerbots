@@ -305,15 +305,23 @@ Playerbots.AutoGear.ItemLevelLimit = 0
 #    Playerbots.Maintenance.Command
 #        Description: Allow the `maintenance` whisper/party order: learn
 #                     spells and proficiencies, apply recommended talents and
-#                     glyphs, riding and mounts, hunter pets, repair. Spec and
-#                     gear are kept.
+#                     glyphs, riding and mounts, hunter pets, a bag in every
+#                     empty bag slot, repair. Spec and gear are kept.
 #        Default:     1
+#
+#    Playerbots.Maintenance.BagEntry
+#        Description: Item entry of the bag `maintenance` puts in each empty
+#                     bag slot (bags already there are kept). 0 = no bags.
+#                     Must be a general bag: a profession bag (enchanting,
+#                     herbs, ...) holds only its own kind of item.
+#        Default:     82446 - (Royal Satchel, 28 slots)
 #
 #    Playerbots.AltMaintenance.Spells
 #    Playerbots.AltMaintenance.Talents
 #    Playerbots.AltMaintenance.Glyphs
 #    Playerbots.AltMaintenance.Mounts
 #    Playerbots.AltMaintenance.Pet
+#    Playerbots.AltMaintenance.Bags
 #        Description: Which parts of `maintenance` run on alt bots. Talents
 #                     replaces the alt's talent choices with the recommended
 #                     build.
@@ -325,6 +333,8 @@ Playerbots.AltMaintenance.Talents = 1
 Playerbots.AltMaintenance.Glyphs = 1
 Playerbots.AltMaintenance.Mounts = 1
 Playerbots.AltMaintenance.Pet = 1
+Playerbots.AltMaintenance.Bags = 1
+Playerbots.Maintenance.BagEntry = 82446
 
 #
 #    Playerbots.Rest.HealthPct
