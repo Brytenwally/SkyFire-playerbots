@@ -40,6 +40,9 @@ public:
     void UpdateBotAI(Player* bot, uint32 diff);
     // Player object is going away — drop self-bot / AI so a relog cannot tick
     // a dangling _bot (GetUInt64Value on a destroyed Object with valuesCount 0).
+    // A real player's logout also queues their own account's alt bots for
+    // logout (saved): logging into one of them later must load where it really
+    // is, not its last autosave, and never run the character twice.
     void OnPlayerLogout(Player* player);
 
     // Real player tick: align in-range socket bots to this player's MoP phases
@@ -266,6 +269,8 @@ private:
     // Bots already auto-inited this session: a low-level bot can still wear only
     // whites after its init, and the ungeared sweep must not re-init it every 5 s.
     std::unordered_set<uint64> _autoInited;
+    // Alt bots whose owner logged out, logged out (and saved) on the next tick.
+    std::vector<uint64> _pendingAltLogouts;
     // Delay between *starting* a new async login (not gear init).
     uint32 _loginIntervalMs = 250;
     // Cap in-flight login query holders for the random pool.

@@ -109,6 +109,11 @@ anonymous namespace; free functions there are file-local.
   new automatic behaviour off for alts too.
 - Automatic init (ungeared sweep / first login) runs at most once per bot per
   session (`_autoInited`): low-level bots can stay in whites after an init.
+- A real player's logout queues every non-random bot on the **same account**
+  for logout on the next tick (`_pendingAltLogouts`, `RemoveBot`, which saves).
+  Without it, logging into an alt that was still a bot loaded its last autosave
+  (PlayerSaveInterval, ~15 min randomised; no save on map change) while the bot
+  copy kept running: alts came back inside a dungeon left 20 minutes earlier.
 
 ## Core fixes made in SkyFire_548
 
