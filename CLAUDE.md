@@ -151,6 +151,14 @@ anonymous namespace; free functions there are file-local.
   not need tank items for hit). Greed on everything else. With Destiny Weaver item scaling
   the bot rolls on the raised version (core `ItemScalingHooks::LootPreview`), since the raise
   itself happens only once the roll is won.
+- Equip upgrades (`PlayerbotAI::EquipBagUpgrades`, AC's AutoEquipUpgradeLoot): bag items that
+  pass the same comparison as a Need roll (`CompareToWorn` + `BeatsWorn`, shared with
+  `IsLootUpgrade`; a one-hander/off-hand never replaces a worn two-hander's off hand slot) are
+  swapped in, best gain first; the old piece takes the new one's bag slot, a two-hander first
+  moves the off hand to a regular bag. Queued by `OnLootItem` / `OnQuestRewardItem` and every
+  `Playerbots.AutoEquip.Interval` s out of combat once the PvE set is on; never in BG/arena,
+  never from the gear bag. Alts: off unless `Playerbots.AutoEquip.Alts = 1` (owner's alt
+  rule); the `equip upgrades` order works on them.
 - `quests all|completed|incompleted|summary`: `PlayerbotAI::HandleQuestListCommand`
   (AC ListQuestsAction, plus objective progress). Bare `quests` stays
   SkyFire's accept / turn in. AC's `travel` variants need TravelMgr (absent).
