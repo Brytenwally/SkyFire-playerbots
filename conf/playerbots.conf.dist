@@ -307,7 +307,7 @@ Playerbots.Gear.MaxQuality = 4
 #                     spell hit for casters (spirit counts for Balance,
 #                     Shadow, Elemental), Fury hit to 26.5%, Balance haste
 #                     soft cap 24.22%, healer haste breakpoints. Rating past
-#                     a cap is worth little, measured on the bot's own
+#                     a hard cap is worth 0.2 of its weight, measured on the bot's own
 #                     ratings without the piece it would replace;
 #                     `autogear reset` then takes the best piece instead of a
 #                     random pick among the top ones. 0 = item level (half

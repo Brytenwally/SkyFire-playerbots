@@ -100,7 +100,7 @@ anonymous namespace; free functions there are file-local.
   not counted). Caps (`BotStatWeights` `CapsFor`, owner's request, from the
   Wowhead page): pools of stats in rating units measured in % of one combat
   rating (`GetRatingMultiplier`), tiers with a weight factor past each cap
-  (hard caps 0.05). `ValueStats` starts from the bot's own ratings
+  (hard caps 0.2, owner's value). `ValueStats` starts from the bot's own ratings
   (`PLAYER_FIELD_COMBAT_RATINGS`, spirit from `GetStat`) minus what the piece
   in that slot gives (`WornStats`: stats, rolled suffix, gems, bonus, enchant). `Playerbots.AutoGear.StatWeights = 0` restores item level
   (half for another spec's primary stat). Weighted `reset` takes the best piece,
