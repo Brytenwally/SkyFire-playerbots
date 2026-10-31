@@ -8,8 +8,10 @@
 #include "engine/BotMovement.h"
 #include "rotations/BotRotation.h"
 #include "AccountMgr.h"
+#include "BotEnchants.h"
 #include "BotGearSets.h"
 #include "BotPreferredMounts.h"
+#include "BotStatWeights.h"
 #include "BotTeleportMaps.h"
 #include "BotVendorHubs.h"
 #include "Chat.h"
@@ -169,6 +171,11 @@ void PlayerbotMgr::LoadConfig()
     _altMaintenancePet = sConfigMgr->GetBoolDefault("Playerbots.AltMaintenance.Pet", true);
     _altMaintenanceBags = sConfigMgr->GetBoolDefault("Playerbots.AltMaintenance.Bags", true);
     _maintenanceBagEntry = uint32(std::max(0, sConfigMgr->GetIntDefault("Playerbots.Maintenance.BagEntry", 82446)));
+    _maintenanceEnchants = sConfigMgr->GetBoolDefault("Playerbots.Maintenance.Enchants", true);
+    _maintenanceGems = sConfigMgr->GetBoolDefault("Playerbots.Maintenance.Gems", true);
+    _altMaintenanceEnchants = sConfigMgr->GetBoolDefault("Playerbots.AltMaintenance.Enchants", true);
+    _altMaintenanceGems = sConfigMgr->GetBoolDefault("Playerbots.AltMaintenance.Gems", true);
+    BotStatWeightTable::SetRankStep(sConfigMgr->GetFloatDefault("Playerbots.Maintenance.StatRankStep", 0.05f));
 
     // Optional numeric thresholds (strategies themselves are runtime co/nc only).
     _restHealthPct = float(sConfigMgr->GetFloatDefault("Playerbots.Rest.HealthPct", 50.0f));
@@ -3607,14 +3614,19 @@ void PlayerbotMgr::MaintainBot(Player* bot)
     uint32 bagsAdded = 0;
     if (allowed(_altMaintenanceBags))
         bagsAdded = FillEmptyBagSlots(bot, _maintenanceBagEntry);
+    // Alts keep the enchants their player chose: only bare items get one.
+    BotEnchants::Result const enchanted = BotEnchants::Apply(bot, specId,
+        _maintenanceEnchants && allowed(_altMaintenanceEnchants),
+        _maintenanceGems && allowed(_altMaintenanceGems), !alt);
 
     bot->DurabilityRepairAll(false, 1.0f, false);
     bot->SendTalentsInfoData();
     bot->SaveToDB();
 
-    SF_LOG_INFO("modules", "[mod-playerbots] Maintained bot '%s' (level %u %s, spec %s%s, %u bag(s) added).",
+    SF_LOG_INFO("modules", "[mod-playerbots] Maintained bot '%s' (level %u %s, spec %s%s, %u bag(s) added, "
+        "%u enchant(s), %u gem(s)).",
         bot->GetName().c_str(), bot->getLevel(), SafeClassName(bot->getClass()), SpecName(specId),
-        alt ? ", alt bot" : "", bagsAdded);
+        alt ? ", alt bot" : "", bagsAdded, enchanted.enchants, enchanted.gems);
 }
 
 uint32 PlayerbotMgr::EnqueueInitializeAllBots(int roleOverride, uint32 specOverride,

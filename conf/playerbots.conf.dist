@@ -306,8 +306,33 @@ Playerbots.AutoGear.ItemLevelLimit = 0
 #        Description: Allow the `maintenance` whisper/party order: learn
 #                     spells and proficiencies, apply recommended talents and
 #                     glyphs, riding and mounts, hunter pets, a bag in every
-#                     empty bag slot, repair. Spec and gear are kept.
+#                     empty bag slot, enchants and gems, repair. Spec and gear
+#                     are kept.
 #        Default:     1
+#
+#    Playerbots.Maintenance.Enchants
+#    Playerbots.Maintenance.Gems
+#        Description: `maintenance` enchants the equipped gear and fills its
+#                     empty sockets, picking the best enchant / gem for the
+#                     bot's spec from the game data (enchanting recipes,
+#                     scrolls, armor kits, leg armor, shoulder inscriptions,
+#                     belt buckles; gem items). Choices are scored with stat
+#                     weights from each spec's stat priority (Wowhead MoP
+#                     pre-raid list): the first stat weighs 1, each rank down
+#                     loses StatRankStep. Gems take the socket bonus into
+#                     account. Enchants needing a profession (ring enchants,
+#                     secret inscriptions, tinkers) and profession gems are
+#                     skipped; gems need an item level up to the gear's.
+#                     Hit/expertise caps are not modelled. An existing enchant
+#                     is replaced only by a better one; gems never replace
+#                     socketed ones.
+#        Default:     1
+#
+#    Playerbots.Maintenance.StatRankStep
+#        Description: Weight lost per rank down a spec's stat priority
+#                     (0.05: 1, 0.95, 0.90, ...). Stats a spec does not list
+#                     weigh 0.
+#        Default:     0.05
 #
 #    Playerbots.Maintenance.BagEntry
 #        Description: Item entry of the bag `maintenance` puts in each empty
@@ -324,9 +349,12 @@ Playerbots.AutoGear.ItemLevelLimit = 0
 #    Playerbots.AltMaintenance.Mounts
 #    Playerbots.AltMaintenance.Pet
 #    Playerbots.AltMaintenance.Bags
+#    Playerbots.AltMaintenance.Enchants
+#    Playerbots.AltMaintenance.Gems
 #        Description: Which parts of `maintenance` run on alt bots. Talents
 #                     replaces the alt's talent choices with the recommended
-#                     build.
+#                     build. Alts only get enchants on items with none (their
+#                     own enchants are never replaced).
 #        Default:     1
 
 Playerbots.Maintenance.Command = 1
@@ -336,7 +364,12 @@ Playerbots.AltMaintenance.Glyphs = 1
 Playerbots.AltMaintenance.Mounts = 1
 Playerbots.AltMaintenance.Pet = 1
 Playerbots.AltMaintenance.Bags = 1
+Playerbots.AltMaintenance.Enchants = 1
+Playerbots.AltMaintenance.Gems = 1
 Playerbots.Maintenance.BagEntry = 82446
+Playerbots.Maintenance.Enchants = 1
+Playerbots.Maintenance.Gems = 1
+Playerbots.Maintenance.StatRankStep = 0.05
 
 #
 #    Playerbots.Rest.HealthPct

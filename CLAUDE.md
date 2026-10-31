@@ -40,6 +40,8 @@ src/
   BotGearSets.*         PvE set worn, PvP set kept in a gear bag (entry 23162),
                         one piece per bag position = equipment slot
   BotTeleportMaps.*, BotVendorHubs.*, BotPreferredMounts.*
+  BotStatWeights.*      per-spec stat weights (Wowhead MoP priorities, rank-based)
+  BotEnchants.*         maintenance enchants and gems
 conf/playerbots.conf.dist   every config key, documented
 sql/characters/             character DB tables the module needs
 COMMANDS.md   every GM command and chat order (update when adding one)
@@ -98,9 +100,20 @@ anonymous namespace; free functions there are file-local.
   (`Playerbots.Maintenance.BagEntry`, default 82446 Royal Satchel; not 23162,
   which is the PvP gear bag `BotGearSets` finds by entry; one slot stays free
   while the bot has no gear bag, since init only adds it to a free slot),
-  repair; keeps spec and gear. Config
+  enchants and gems, repair; keeps spec and gear. Config
   `Playerbots.Maintenance.Command`, `Playerbots.AltMaintenance.*`.
-  Not ported: enchants/gems, consumables, bags, reputation, pet talents.
+  Not ported: consumables, reputation, pet talents.
+- Enchants/gems (`BotEnchants.*`, called from `MaintainBot`): candidates built
+  once from game data (gem items; enchanting recipes via SkillLineAbility,
+  level from recipe rank; item enhancement consumables, level = RequiredLevel),
+  scored with `BotStatWeights.*`. Weights: the owner asked for Wowhead's MoP
+  Classic stat priorities with rank weights 1, 0.95, 0.90...
+  (`Playerbots.Maintenance.StatRankStep`); per point primary x2, stamina x1.5
+  (MoP gems 160/240/320); procs count 0.35. Gems follow
+  `WorldSession::HandleSocketOpcode` (meta toggling, socket bonus); only empty
+  sockets; sha/cogwheel sockets and profession-only gems/enchants skipped.
+  Alts: only items without an enchant are enchanted. Caps not modelled;
+  `BotStatWeights` could also feed autogear later.
 - `quests all|completed|incompleted|summary`: `PlayerbotAI::HandleQuestListCommand`
   (AC ListQuestsAction, plus objective progress). Bare `quests` stays
   SkyFire's accept / turn in. AC's `travel` variants need TravelMgr (absent).
