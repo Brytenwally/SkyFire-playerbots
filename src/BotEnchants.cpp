@@ -600,6 +600,22 @@ namespace
             bestScore = score;
         }
 
+        // An enchant over the cap (put on before it existed) comes off a bot that is not an
+        // alt, replaced below when something fits, else left empty.
+        uint32 const existing = item->GetEnchantmentId(PERM_ENCHANTMENT_SLOT);
+        if (existing && replace)
+        {
+            float const power = EnchantPower(sSpellItemEnchantmentStore.LookupEntry(existing));
+            float const budget = GearBudget(bot, item);
+            if (budget > 0.0f && power > budget * g_enchantBudgetShare)
+            {
+                SF_LOG_INFO("modules", "[mod-playerbots] Removed enchant %u from %s's %s (item level %u): "
+                    "worth %.0f of a %.0f budget.", existing, bot->GetName().c_str(),
+                    item->GetTemplate()->Name1.c_str(), item->GetTemplate()->ItemLevel, power, budget);
+                EnchantItem(bot, item, PERM_ENCHANTMENT_SLOT, 0);
+            }
+        }
+
         if (best)
         {
             uint32 const current = item->GetEnchantmentId(PERM_ENCHANTMENT_SLOT);

@@ -129,7 +129,8 @@ anonymous namespace; free functions there are file-local.
   are dropped, and an enchant's power (`EnchantPower`, primary-stat points)
   may not exceed `Playerbots.Maintenance.EnchantBudgetShare` x the gear's
   budget (RandPropPoints epic col 0 at its item level). Each applied enchant
-  is logged with its source, level and power.
+  is logged with its source, level and power; on non-alt bots an existing
+  enchant over the cap is removed (replaced when something fits).
   Alts: only items without an enchant are enchanted. Gems are valued against
   the same caps, per item, from the bot's current ratings; enchants are not.
   The same weights drive autogear (see above).
