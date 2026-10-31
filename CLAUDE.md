@@ -18,6 +18,7 @@ A port of the AzerothCore playerbots system (3.3.5 / WotLK) to **SkyFire 5.4.8
 | `Brytenwally/SkyFire-playerbots` (this repo) | The 5.4.8 module. Lives in the core at `modules/mod-playerbots`. | Where port work goes. |
 | `Brytenwally/SkyFire_548` | The 5.4.8 core, a fork of Project SkyFire. Has the module system and the bot hooks. | Change only for hooks the module cannot do without, or to fix core bugs the owner hits (e.g. database setup). |
 | `Brytenwally/SkyFire-build` | GitHub Actions workflow that builds Windows x64 binaries (core + this module, MySQL 8.0.44 client). | Has its own `CLAUDE.md`. |
+| `Brytenwally/SkyFire-DestinyWeaver` | `mod-destiny-weaver`: per-character open world scaling (port of the CoA AzerothCore module). In the core at `modules/mod-destiny-weaver`; disabled by default. | Has its own `CLAUDE.md`. Reference: `Brytenwally/azerothcore-wotlk-coa` (read-only). |
 | `Brytenwally/mod-playerbots` (branch `coa`) | AzerothCore 3.3.5 playerbots, Conquest of Azeroth fork. | **Read-only reference.** Never build it, never change or push to it, never compile it against 5.4.8. Read it to see what a feature does, then rewrite it for 5.4.8 here. |
 
 ## Git rules
@@ -149,6 +150,11 @@ anonymous namespace; free functions there are file-local.
 
 - `PlayerScript::OnQuestReward` hook added (bots never turned quests in with
   the master, so chains stopped after the first quest and logs filled up).
+
+- Open world scaling hooks (`game/Miscellaneous/LocalLevelScaling.h`, for
+  mod-destiny-weaver): per-recipient creature fields in `Unit::BuildValuesUpdate`,
+  `Creature::getLevelForTarget`, armor, kill XP and quest XP/money. Inert unless
+  the module installs its resolvers. Bots in a group follow the leader's switch.
 
 - Database setup (`src/server/shared/Database/DatabaseSetup/`): updates the
   base SQL already records in `skyfire_db_updates` are skipped instead of
