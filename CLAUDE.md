@@ -176,21 +176,14 @@ anonymous namespace; free functions there are file-local.
   levels (`Player::RefreshQuestLogQueries`). Inert unless
   the module installs its resolvers. Bots in a group follow the leader's switch.
 
-- Item level shift test (`game/Entities/Item/ItemLevelShift.*`): an item instance
-  carries an item level shift in its upgrade modifier (ITEM_DYNAMIC_MODIFIERS
-  index 2, synthetic upgrade ids 900000+1000+shift, ItemUpgrade.db2 hotfix rows
-  for -200..+600 sent at login, path 124; the client requests them in batches of
-  100). Confirmed in game: the tooltip follows when ITEM_FIELD_MODIFIERS_MASK
-  covers modifiers 0-2 (7; 4 is ignored, 255 breaks the item). Stats use the
-  client's formula (RandPropPoints x stat_unk1 allocation / 10000 minus
-  int(socket multiplier x gtItemSocketCostPerLevel), multiplier recovered to a
-  quarter because the DB rounds it), armor/damage from the item level tables;
-  verified on 14 tooltip values. `.debug itemlevel <slot> <shift>` /
-  `raw <upgrade id> [mask]`; not saved yet. Groundwork for Destiny Weaver loot
-  scaling (heirloom-like, frozen at the loot level).
-  Owner's decisions: Destiny Weaver only upgrades loot, never downgrades; no
-  random suffixes to add secondary stats to upgraded items (they rename the
-  item and add to its budget) — items keep their own stats, scaled.
+- Item scaling hooks (`game/Entities/Item/ItemScalingHooks.h`, for mod-destiny-weaver):
+  `Item::GetUpgradeId/SetUpgradeId` (5.4 upgrade modifier, ITEM_DYNAMIC_MODIFIERS index 2;
+  the client shows it only when ITEM_FIELD_MODIFIERS_MASK covers modifiers 0-2, i.e. 7),
+  `Item::GetStatTemplate` (Player applies stats/armor/damage from it), hooks StatTemplate,
+  ItemLoaded (end of `Item::LoadFromDB`), UpgradeHotfixList/UpgradeRowWriter (ItemUpgrade.db2
+  rows), `PlayerScript::OnLootItem` / `OnQuestRewardItem`, and `gtItemSocketCostPerLevel.dbc`
+  loaded. Owner's rule: the logic lives in the module (DestinyWeaverItems.cpp), the core only
+  keeps hooks. The `.debug itemlevel` test that proved it was removed.
 
 - Database setup (`src/server/shared/Database/DatabaseSetup/`): updates the
   base SQL already records in `skyfire_db_updates` are skipped instead of
