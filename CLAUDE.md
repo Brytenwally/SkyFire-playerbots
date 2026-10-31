@@ -104,9 +104,6 @@ anonymous namespace; free functions there are file-local.
 - `quests all|completed|incompleted|summary`: `PlayerbotAI::HandleQuestListCommand`
   (AC ListQuestsAction, plus objective progress). Bare `quests` stays
   SkyFire's accept / turn in. AC's `travel` variants need TravelMgr (absent).
-- `.playerbots alts` (GM): the issuer's account characters, `Account characters: N`
-  then `  Name (level L, class C, online|offline)`; SquidBots Lite's My alts parses
-  that exact text (keep the wording).
 - `.playerbots add` is async (`BeginSpawnBot` + `ProcessPendingLogins`, paced
   by `RandomBots.LoginsPerTick`); `Bot 'X' logged in.` is sent to the issuer
   by `NotifyAddResult` when the character is loaded. SquidBots Lite parses that
@@ -124,6 +121,10 @@ anonymous namespace; free functions there are file-local.
   Without it, logging into an alt that was still a bot loaded its last autosave
   (PlayerSaveInterval, ~15 min randomised; no save on map change) while the bot
   copy kept running: alts came back inside a dungeon left 20 minutes earlier.
+
+- **Owner's rule: no server changes just to serve an addon** (SquidBots Lite).
+  A `.playerbots alts` command for My alts was added and reverted; the owner
+  manages alts by hand. Server features are for the bots themselves.
 
 ## Core fixes made in SkyFire_548
 

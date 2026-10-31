@@ -15,7 +15,6 @@ Whisper replies with a short ack. Party/raid orders apply silently (no spam).
 | --- | --- |
 | `.playerbots status` | Module on/off, random-bot counts, pending logins, login/init pacing. |
 | `.playerbots list` | Names/GUIDs of active (socket) bots. |
-| `.playerbots alts` | The characters of **your own account**: `Account characters: N`, then `  Name (level L, class C, online|offline)` per character (C = class id). Deleted characters are not listed. SquidBots Lite's My alts uses it. |
 | `.playerbots add <name>` | Log an offline character in as a full bot session. The login runs in the background (no server freeze): the command answers `Logging in bot '<name>'...`, then `Bot '<name>' logged in.` once the character is loaded. The bot is not invited to your group. When you log out, every bot on **your own account** logs out with you (saved), so logging into one of those characters next loads where it really is. Random-pool bots and bots from other accounts stay online. |
 | `.playerbots remove <name>` | Log that bot out and free its session. |
 | `.playerbots summon` | Teleport all bots in your group to you. |
