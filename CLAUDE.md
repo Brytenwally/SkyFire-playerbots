@@ -139,7 +139,10 @@ anonymous namespace; free functions there are file-local.
   points below them count `kMustReachBoost` (10) times. Autogear does not
   boost. Several sockets of one item are chosen together, so a cap can be
   overshot by a gem or two.
-  The same weights drive autogear (see above).
+  The same weights drive autogear (see above). Items raised by Destiny Weaver's
+  item scaling (core `Item::GetStatTemplate`) are valued at their raised level
+  and stats: autogear's worn score, `WornStats`, the enchant budget and the gem
+  item level limit all read `GetStatTemplate()`.
 - `quests all|completed|incompleted|summary`: `PlayerbotAI::HandleQuestListCommand`
   (AC ListQuestsAction, plus objective progress). Bare `quests` stays
   SkyFire's accept / turn in. AC's `travel` variants need TravelMgr (absent).
