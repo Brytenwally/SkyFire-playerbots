@@ -201,6 +201,15 @@ anonymous namespace; free functions there are file-local.
   re-run (fresh characters DB failed with "Duplicate entry
   'characters-2026_08_03_characters_00.sql'").
 
+## Line endings in SkyFire_548
+
+Some core files are stored with CRLF line endings (e.g. `Player.cpp`), most with LF.
+Keep each file's endings when editing: an editor or script that rewrites a CRLF file as
+LF makes every line differ, and the file then conflicts as a whole with any upstream
+change (the owner hit this sending the hooks to ProjectSkyfire). Python: open with
+`newline=''`; check with `grep -c $'\r' file` against `git show upstream/main:file`.
+Upstream remote: `https://github.com/ProjectSkyfire/SkyFire_548.git` (branch `main`).
+
 ## Building and checking
 
 - Core requires **g++ 14+** (C++23), **Boost 1.91**, OpenSSL, MySQL client.
