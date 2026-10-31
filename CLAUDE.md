@@ -163,6 +163,14 @@ anonymous namespace; free functions there are file-local.
   levels (`Player::RefreshQuestLogQueries`). Inert unless
   the module installs its resolvers. Bots in a group follow the leader's switch.
 
+- Item level shift test (`game/Entities/Item/ItemLevelShift.*`): an item instance
+  carries an item level shift in its upgrade modifier (ITEM_DYNAMIC_MODIFIERS
+  index 2, synthetic upgrade ids 900000+1000+shift, ItemUpgrade.db2 hotfix rows
+  for -200..+600 sent at login). Stats scale by the RandPropPoints budget ratio,
+  armor/damage from the item level tables. `.debug itemlevel <slot> <shift>`;
+  not saved yet. Groundwork for Destiny Weaver loot scaling (heirloom-like,
+  frozen at the loot level) once the client display is confirmed.
+
 - Database setup (`src/server/shared/Database/DatabaseSetup/`): updates the
   base SQL already records in `skyfire_db_updates` are skipped instead of
   re-run (fresh characters DB failed with "Duplicate entry
