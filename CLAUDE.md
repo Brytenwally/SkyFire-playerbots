@@ -89,7 +89,9 @@ anonymous namespace; free functions there are file-local.
 - `maintenance`: `PlayerbotMgr::MaintainBot`. Spells, proficiencies, talents,
   glyphs, mounts, hunter pets, a bag in each empty bag slot
   (`Playerbots.Maintenance.BagEntry`, default 82446 Royal Satchel; not 23162,
-  which is the PvP gear bag `BotGearSets` finds by entry), repair; keeps spec and gear. Config
+  which is the PvP gear bag `BotGearSets` finds by entry; one slot stays free
+  while the bot has no gear bag, since init only adds it to a free slot),
+  repair; keeps spec and gear. Config
   `Playerbots.Maintenance.Command`, `Playerbots.AltMaintenance.*`.
   Not ported: enchants/gems, consumables, bags, reputation, pet talents.
 - `quests all|completed|incompleted|summary`: `PlayerbotAI::HandleQuestListCommand`
