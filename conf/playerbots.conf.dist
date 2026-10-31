@@ -312,6 +312,8 @@ Playerbots.AutoGear.ItemLevelLimit = 0
 #    Playerbots.Maintenance.BagEntry
 #        Description: Item entry of the bag `maintenance` puts in each empty
 #                     bag slot (bags already there are kept). 0 = no bags.
+#                     A bot without its PvP gear bag yet keeps one slot free
+#                     for it (`.playerbots init` / `autogear reset` add it).
 #                     Must be a general bag: a profession bag (enchanting,
 #                     herbs, ...) holds only its own kind of item.
 #        Default:     82446 - (Royal Satchel, 28 slots)

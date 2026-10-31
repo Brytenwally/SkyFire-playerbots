@@ -3108,13 +3108,23 @@ namespace
     }
 
     // AC maintenance InitBags: a bag in every empty bag slot (bags already there stay).
+    // A bot without its PvP gear bag yet keeps one slot free for it: init /
+    // autogear reset only add the gear bag into a free bag slot.
     uint32 FillEmptyBagSlots(Player* bot, uint32 bagEntry)
     {
         if (!bagEntry || !sObjectMgr->GetItemTemplate(bagEntry))
             return 0;
 
-        uint32 added = 0;
+        uint32 empty = 0;
         for (uint8 slot = INVENTORY_SLOT_BAG_START; slot < INVENTORY_SLOT_BAG_END; ++slot)
+            if (!bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+                ++empty;
+        uint32 toFill = empty;
+        if (toFill && !BotGearSets::FindGearBag(bot))
+            --toFill;
+
+        uint32 added = 0;
+        for (uint8 slot = INVENTORY_SLOT_BAG_START; slot < INVENTORY_SLOT_BAG_END && added < toFill; ++slot)
         {
             if (bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
                 continue;
