@@ -326,6 +326,9 @@ private:
     bool HandlePositionCommand(Player* from, std::string const& args, bool acknowledge);
     // AC `autogear [reset] [match|<quality>|<item level>]`.
     bool HandleAutoGearCommand(Player* from, std::string const& args, bool acknowledge);
+    // AC `quests all|completed|incompleted|summary`: whispers the quest log.
+    // False for any other argument (bare `quests` is accept / turn in).
+    bool HandleQuestListCommand(Player* from, std::string const& args);
 
     Creature* FindNearbyLoot();
     Creature* FindNearbyRepairer();

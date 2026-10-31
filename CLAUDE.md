@@ -82,6 +82,13 @@ anonymous namespace; free functions there are file-local.
   glyphs, mounts, hunter pets, repair; keeps spec and gear. Config
   `Playerbots.Maintenance.Command`, `Playerbots.AltMaintenance.*`.
   Not ported: enchants/gems, consumables, bags, reputation, pet talents.
+- `quests all|completed|incompleted|summary`: `PlayerbotAI::HandleQuestListCommand`
+  (AC ListQuestsAction, plus objective progress). Bare `quests` stays
+  SkyFire's accept / turn in. AC's `travel` variants need TravelMgr (absent).
+- `.playerbots add` is async (`BeginSpawnBot` + `ProcessPendingLogins`, paced
+  by `RandomBots.LoginsPerTick`); `Bot 'X' logged in.` is sent to the issuer
+  by `NotifyAddResult` when the character is loaded. SquidBots Lite parses that
+  exact text: keep the wording.
 - Alt bot = not in the random pool and not on an AccountPrefix account
   (`PlayerbotMgr::IsAltBot`, account name checked by `IsBotAccount`, cached).
   **Rule from the owner: nothing changes an alt unless the player orders it.**

@@ -257,15 +257,18 @@ public:
             return false;
         }
 
+        // The login runs in the background; "Bot 'X' logged in." follows once the
+        // character is loaded (the console gets nothing more).
         std::string error;
-        if (!sPlayerbotMgr->AddBot(guid, &error))
+        Player* issuer = handler->GetSession() ? handler->GetSession()->GetPlayer() : nullptr;
+        if (!sPlayerbotMgr->AddBot(guid, &error, issuer ? issuer->GetGUID() : 0))
         {
             handler->PSendSysMessage("Could not add bot '%s': %s", name.c_str(), error.c_str());
             handler->SetSentErrorMessage(true);
             return false;
         }
 
-        handler->PSendSysMessage("Bot '%s' logged in.", name.c_str());
+        handler->PSendSysMessage("Logging in bot '%s'...", name.c_str());
         return true;
     }
 

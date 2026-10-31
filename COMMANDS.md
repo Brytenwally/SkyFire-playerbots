@@ -15,7 +15,7 @@ Whisper replies with a short ack. Party/raid orders apply silently (no spam).
 | --- | --- |
 | `.playerbots status` | Module on/off, random-bot counts, pending logins, login/init pacing. |
 | `.playerbots list` | Names/GUIDs of active (socket) bots. |
-| `.playerbots add <name>` | Log an offline character in as a full bot session. |
+| `.playerbots add <name>` | Log an offline character in as a full bot session. The login runs in the background (no server freeze): the command answers `Logging in bot '<name>'...`, then `Bot '<name>' logged in.` once the character is loaded. The bot is not invited to your group. |
 | `.playerbots remove <name>` | Log that bot out and free its session. |
 | `.playerbots summon` | Teleport all bots in your group to you. |
 | `.playerbots reload` | Reload `playerbots.conf` and the random-bot candidate pool. |
@@ -243,6 +243,10 @@ Send these as the message text (case-insensitive).
 | `mount prefer clear` | Clear preferred mounts for this bot. |
 | `gossip` / `gossip <n>` | List or select a gossip menu option on a nearby NPC. |
 | `quests` / `accept` / `turn in` | Accept/turn-in nearby (walks in), with reward-choice AI. With `nc +quests`, also travels to same-map objectives. |
+| `quests all` | Whisper the quest log (AC `ListQuestsAction`): in-progress quests as links with their objectives (`3/8 Kobold Vermin`), then completed ones, then `Total: n / 25 (incompleted: a, completed: b)`. |
+| `quests incompleted` / `quests in` | Only the quests in progress, then the total. |
+| `quests completed` / `quests co` | Only the quests ready to turn in, then the total. |
+| `quests summary` | Only the total. (AC's bare `quests` is this; here bare `quests` stays accept / turn in.) |
 
 Grouped bots on the `follow` pack (`-quests,-grind`) do **not** path to givers/objectives alone. When the master accepts a quest, eligible bots on the same map auto-add it to their quest log so they share progress while staying in formation. Auto turn-in while following is not enabled.
 

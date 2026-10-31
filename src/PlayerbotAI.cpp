@@ -726,6 +726,109 @@ namespace
     }
 }
 
+namespace
+{
+    // An objective's name: its own text, else what it asks for.
+    std::string QuestObjectiveLabel(QuestObjective const* objective)
+    {
+        if (!objective->Description.empty())
+            return objective->Description;
+        switch (objective->Type)
+        {
+            case QUEST_OBJECTIVE_TYPE_NPC:
+            case QUEST_OBJECTIVE_TYPE_NPC_INTERACT:
+                if (CreatureTemplate const* creature = sObjectMgr->GetCreatureTemplate(objective->ObjectId))
+                    return creature->Name;
+                break;
+            case QUEST_OBJECTIVE_TYPE_ITEM:
+                if (ItemTemplate const* item = sObjectMgr->GetItemTemplate(objective->ObjectId))
+                    return item->Name1;
+                break;
+            case QUEST_OBJECTIVE_TYPE_GO:
+                if (GameObjectTemplate const* go = sObjectMgr->GetGameObjectTemplate(objective->ObjectId))
+                    return go->name;
+                break;
+            default:
+                break;
+        }
+        return "objective";
+    }
+}
+
+bool PlayerbotAI::HandleQuestListCommand(Player* from, std::string const& args)
+{
+    bool showIncomplete = false;
+    bool showComplete = false;
+    if (args == "all")
+        showIncomplete = showComplete = true;
+    else if (args == "completed" || args == "co")
+        showComplete = true;
+    else if (args == "incompleted" || args == "in")
+        showIncomplete = true;
+    else if (args != "summary")
+        return false;
+
+    // Every quest as a link; one in progress also gets its objectives, "3/8 Kobold Vermin".
+    auto questLine = [this](Quest const* quest, bool complete) -> std::string
+    {
+        std::ostringstream out;
+        out << "|cffffff00|Hquest:" << quest->GetQuestId() << ':' << quest->GetQuestLevel() << "|h["
+            << quest->GetTitle() << "]|h|r";
+        if (complete)
+            return out.str();
+
+        std::string objectives;
+        for (QuestObjective const* objective : quest->m_questObjectives)
+        {
+            if (objective->Amount <= 0)
+                continue;
+            uint32 const amount = uint32(objective->Amount);
+            uint32 done = objective->Type == QUEST_OBJECTIVE_TYPE_ITEM
+                ? _bot->GetItemCount(objective->ObjectId)
+                : _bot->GetQuestObjectiveCounter(objective->Id);
+            done = std::min(done, amount);
+            std::string const piece = std::to_string(done) + "/" + std::to_string(amount) + " "
+                + QuestObjectiveLabel(objective);
+            // Whispers past ~255 characters are cut by the client.
+            if (out.str().size() + objectives.size() + piece.size() > 230)
+                break;
+            objectives += objectives.empty() ? " - " : ", ";
+            objectives += piece;
+        }
+        return out.str() + objectives;
+    };
+
+    uint32 incomplete = 0;
+    uint32 complete = 0;
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        bool const completedPass = pass == 1;
+        bool const show = completedPass ? showComplete : showIncomplete;
+        if (show)
+            ReplyTo(from, completedPass ? "--- Completed quests ---" : "--- Incompleted quests ---");
+
+        for (uint16 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+        {
+            uint32 const questId = _bot->GetQuestSlotQuestId(slot);
+            Quest const* quest = questId ? sObjectMgr->GetQuestTemplate(questId) : nullptr;
+            if (!quest)
+                continue;
+            bool const isComplete = _bot->GetQuestStatus(questId) == QUEST_STATUS_COMPLETE;
+            if (isComplete != completedPass)
+                continue;
+
+            ++(isComplete ? complete : incomplete);
+            if (show)
+                ReplyTo(from, questLine(quest, isComplete));
+        }
+    }
+
+    ReplyTo(from, "--- Summary ---");
+    ReplyTo(from, "Total: " + std::to_string(incomplete + complete) + " / " + std::to_string(MAX_QUEST_LOG_SIZE)
+        + " (incompleted: " + std::to_string(incomplete) + ", completed: " + std::to_string(complete) + ")");
+    return true;
+}
+
 bool PlayerbotAI::HandleAutoGearCommand(Player* from, std::string const& args, bool acknowledge)
 {
     auto reply = [&](std::string const& msg)
@@ -6712,7 +6815,7 @@ bool PlayerbotAI::HandleChatCommand(Player* from, std::string const& text, bool 
 
     if (cmd == "help")
     {
-        ack("Orders: stay, follow, flee, leave, summon, grind, reset, passive, aggressive, attack, tank/dps attack, pull, rti, go, position, sell, sell all, mount, mount prefer, gossip, quests, eat/drink, maintenance, autogear [reset] [match|quality|ilvl], spells, debug. Strategies: co/nc +name,-name,~name or co?/nc?. Filters: @tank/@dps/@heal/@ranged.");
+        ack("Orders: stay, follow, flee, leave, summon, grind, reset, passive, aggressive, attack, tank/dps attack, pull, rti, go, position, sell, sell all, mount, mount prefer, gossip, quests, quests all|completed|incompleted|summary, eat/drink, maintenance, autogear [reset] [match|quality|ilvl], spells, debug. Strategies: co/nc +name,-name,~name or co?/nc?. Filters: @tank/@dps/@heal/@ranged.");
         return true;
     }
 
@@ -6870,6 +6973,10 @@ bool PlayerbotAI::HandleChatCommand(Player* from, std::string const& text, bool 
             ack("Invalid gossip option.");
         return true;
     }
+
+    // "quests all" / "completed" / "incompleted" / "summary" list the quest log (AC ListQuestsAction).
+    if (cmd.rfind("quests ", 0) == 0 && HandleQuestListCommand(from, cmd.substr(7)))
+        return true;
 
     if (cmd == "quests" || cmd == "accept" || cmd == "turn in" || cmd == "turnin")
     {
