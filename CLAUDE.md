@@ -153,7 +153,8 @@ anonymous namespace; free functions there are file-local.
 
 - Open world scaling hooks (`game/Miscellaneous/LocalLevelScaling.h`, for
   mod-destiny-weaver): per-recipient creature fields in `Unit::BuildValuesUpdate`,
-  `Creature::getLevelForTarget`, armor, kill XP and quest XP/money. Inert unless
+  `Creature::getLevelForTarget`, armor, kill XP, quest XP/money and quest log
+  levels (`Player::RefreshQuestLogQueries`). Inert unless
   the module installs its resolvers. Bots in a group follow the leader's switch.
 
 - Database setup (`src/server/shared/Database/DatabaseSetup/`): updates the
