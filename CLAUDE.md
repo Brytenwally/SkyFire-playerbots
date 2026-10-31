@@ -97,7 +97,10 @@ anonymous namespace; free functions there are file-local.
   (owner's choice: the maintenance stat weights; stats incl. heirloom scaling,
   random suffixes as rolled / averaged over item_enchantment_template, sockets
   as the best gem, weapon DPS x7 x primary weight for non-Int specs; enchants
-  not counted). Caps (`BotStatWeights` `CapsFor`, owner's request, from the
+  not counted; another spec's piece, i.e. only primary stats the spec weighs 0, counts
+  0.25: the owner saw resto shamans take strength gear on its secondaries). Loot Need and
+  auto-equip never take such a piece, and init's fallback pass prefers pieces with no
+  primary stat over another spec's. Caps (`BotStatWeights` `CapsFor`, owner's request, from the
   Wowhead page): pools of stats in rating units measured in % of one combat
   rating (`GetRatingMultiplier`), tiers with a weight factor past each cap
   (hard caps 0.2, owner's value). `ValueStats` starts from the bot's own ratings
