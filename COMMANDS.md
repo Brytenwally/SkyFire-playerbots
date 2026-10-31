@@ -219,7 +219,7 @@ Send these as the message text (case-insensitive).
 | `pull` | Tank-spec bots: reach your target (or RTI mark), cast a ranged opener / taunt, then fight. |
 | `rti` / `rti skull\|…` | Set which raid icon bots focus (default skull). Tanks auto-mark that icon on an unmarked pack mob in combat. |
 | `dps attack` | Damage-role bots attack your target. |
-| `maintenance` | Keep spec and gear; learn trainer/level spells and armor proficiencies, re-apply recommended talents and glyphs, riding + mounts, fill hunter Call Pet slots, repair. Alt bots skip parts disabled by `Playerbots.AltMaintenance.*`. Off with `Playerbots.Maintenance.Command = 0`. |
+| `maintenance` | Keep spec and gear; learn trainer/level spells and armor proficiencies, re-apply recommended talents and glyphs, riding + mounts, fill hunter Call Pet slots, put a bag (`Playerbots.Maintenance.BagEntry`, Royal Satchel by default) in every empty bag slot, repair. Alt bots skip parts disabled by `Playerbots.AltMaintenance.*`. Off with `Playerbots.Maintenance.Command = 0`. |
 | `autogear` | Upgrade worn PvE gear for the bot's current spec: a slot changes only for a higher item level (a piece with the wrong primary stat counts half), and the old piece goes to the bags (full bags keep it). Capped by `Playerbots.AutoGear.QualityLimit` / `ItemLevelLimit`. Not in combat. |
 | `autogear reset` | Destroy worn gear and regear every slot from scratch (re-rolls the PvP set too). Combines with the options below: `autogear reset green`, `autogear reset 450`, `autogear reset match`. |
 | `autogear <quality>` | Cap quality: `white`/`common`, `green`/`uncommon`, `blue`/`rare`, `purple`/`epic`, `orange`/`legendary` (never above the config limit). |
