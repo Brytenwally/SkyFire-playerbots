@@ -59,7 +59,11 @@ anonymous namespace; free functions there are file-local.
 - `PlayerScript::OnQuestAdd` / `OnQuestReward` (end of `Player::AddQuest` /
   `Player::RewardQuest`): grouped bots copy the master's accepts and turn-ins
   (`PlayerbotAI::MirrorQuestAccept` / `MirrorQuestReward`, called from
-  `PlayerbotScripts.cpp`).
+  `PlayerbotScripts.cpp`). Owner's rule, as on AzerothCore: a bot that has the
+  quest turns it in with the master whatever its own objectives; only bag
+  space for the rewards (`QuestRewardsFit`) and daily/weekly limits stop it.
+- `RewardQuest` / `CanRewardQuest` take the chosen reward's **item id**, not
+  its index (`BestRewardItem`).
 - Bot-aware edits also exist in Map, Group, LFG and Player code (grep `IsBot`).
 
 ## Porting a feature from mod-playerbots

@@ -793,42 +793,68 @@ void PlayerbotAI::MirrorQuestAccept(Player* master, Quest const* quest)
     ReplyTo(master, "Can't take " + QuestLink(quest) + ": " + reason + ".");
 }
 
+// Room in the bags for what the quest hands out: the chosen item and the fixed rewards.
+bool PlayerbotAI::QuestRewardsFit(Quest const* quest, uint32 rewardItem) const
+{
+    auto fits = [this](uint32 item, uint32 count)
+    {
+        if (!item || !count)
+            return true;
+        ItemPosCountVec dest;
+        return _bot->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, item, count) == EQUIP_ERR_OK;
+    };
+    if (quest->GetRewChoiceItemsCount() > 0 && !fits(rewardItem, quest->GetRewChoiceItemCount(rewardItem)))
+        return false;
+    for (uint32 i = 0; i < quest->GetRewItemsCount(); ++i)
+        if (!fits(quest->RewardItemId[i], quest->RewardItemIdCount[i]))
+            return false;
+    return true;
+}
+
+// As on AzerothCore: when the master turns a quest in, a bot that has it turns it in too,
+// done with its own objectives or not. Only a full bag (or a daily limit) stops it.
 void PlayerbotAI::MirrorQuestReward(Player* master, Quest const* quest, Object* questGiver)
 {
     if (!master || !quest || !_bot)
         return;
 
-    QuestStatus const status = _bot->GetQuestStatus(quest->GetQuestId());
-    if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_REWARDED)
+    uint32 const questId = quest->GetQuestId();
+    QuestStatus const status = _bot->GetQuestStatus(questId);
+    if (status != QUEST_STATUS_INCOMPLETE && status != QUEST_STATUS_COMPLETE)
+        return;
+    if (_bot->GetQuestRewardStatus(questId))
         return;
 
-    if (status != QUEST_STATUS_COMPLETE || !_bot->CanRewardQuest(quest, false))
+    if (!_bot->SatisfyQuestDay(quest, false) || !_bot->SatisfyQuestWeek(quest, false)
+        || !_bot->SatisfyQuestMonth(quest, false) || !_bot->SatisfyQuestSeasonal(quest, false))
     {
-        ReplyTo(master, "Can't turn in " + QuestLink(quest) + " yet: my objectives are not done.");
+        ReplyTo(master, "Can't turn in " + QuestLink(quest) + ": I've reached the limit for this quest.");
         return;
     }
 
-    // Turned in to an NPC or an object: the bot must be near it as well. An
-    // item or the master itself (auto-complete) needs no place.
-    WorldObject* place = nullptr;
-    if (questGiver && (questGiver->GetTypeId() == TypeID::TYPEID_UNIT
-        || questGiver->GetTypeId() == TypeID::TYPEID_GAMEOBJECT))
-        place = static_cast<WorldObject*>(questGiver);
-    constexpr float TURN_IN_RANGE = 40.0f;
-    if (place && !_bot->IsWithinDistInMap(place, TURN_IN_RANGE))
-    {
-        ReplyTo(master, "Can't turn in " + QuestLink(quest) + ": I'm too far from " + place->GetName() + ".");
-        return;
-    }
-
-    uint32 const reward = BestRewardIndex(quest);
-    if (!_bot->CanRewardQuest(quest, reward, false))
+    uint32 const reward = BestRewardItem(quest);
+    if (!QuestRewardsFit(quest, reward))
     {
         ReplyTo(master, "Can't turn in " + QuestLink(quest) + ": no room in my bags for the reward.");
         return;
     }
 
-    _bot->RewardQuest(quest, reward, place ? static_cast<Object*>(place) : static_cast<Object*>(_bot), true);
+    // Its own objectives do not matter: mark it complete, then hand it in. A
+    // tracking-event quest rewards itself in CompleteQuest.
+    if (status != QUEST_STATUS_COMPLETE)
+    {
+        _bot->CompleteQuest(questId);
+        if (_bot->GetQuestRewardStatus(questId))
+            return;
+    }
+
+    // To the master's NPC or object when there is one; an item or an auto-complete
+    // turn-in has no place, so the bot itself stands in.
+    Object* giver = _bot;
+    if (questGiver && (questGiver->GetTypeId() == TypeID::TYPEID_UNIT
+        || questGiver->GetTypeId() == TypeID::TYPEID_GAMEOBJECT))
+        giver = questGiver;
+    _bot->RewardQuest(quest, reward, giver, true);
 }
 
 bool PlayerbotAI::HandleQuestListCommand(Player* from, std::string const& args)
@@ -5874,7 +5900,7 @@ bool PlayerbotAI::HandleQuestNpcs()
             QuestStatus const status = _bot->GetQuestStatus(mi.QuestId);
             if (status == QUEST_STATUS_COMPLETE && _bot->CanRewardQuest(quest, false))
             {
-                uint32 const reward = BestRewardIndex(quest);
+                uint32 const reward = BestRewardItem(quest);
                 if (_bot->CanRewardQuest(quest, reward, false))
                 {
                     _bot->RewardQuest(quest, reward, npc, true);
@@ -5902,13 +5928,16 @@ bool PlayerbotAI::HandleQuestNpcs()
     return false;
 }
 
-uint32 PlayerbotAI::BestRewardIndex(Quest const* quest) const
+uint32 PlayerbotAI::BestRewardItem(Quest const* quest) const
 {
     if (!_bot || !quest)
         return 0;
     uint32 const count = quest->GetRewChoiceItemsCount();
-    if (count <= 1 || !sPlayerbotMgr->GetQuestAutoPickReward())
+    if (count == 0)
         return 0;
+    // RewardQuest / CanRewardQuest take the chosen item's id, not its index.
+    if (count == 1 || !sPlayerbotMgr->GetQuestAutoPickReward())
+        return quest->RewardChoiceItemId[0];
 
     int bestIdx = 0;
     int bestScore = -1;
@@ -5934,7 +5963,7 @@ uint32 PlayerbotAI::BestRewardIndex(Quest const* quest) const
             bestIdx = int(i);
         }
     }
-    return uint32(bestIdx);
+    return quest->RewardChoiceItemId[bestIdx];
 }
 
 bool PlayerbotAI::SelectGossipOption(Creature* npc, uint32 gossipListId)
