@@ -88,6 +88,7 @@ public:
     // can, and whispers the master why when it cannot.
     void MirrorQuestAccept(Player* master, Quest const* quest);
     void MirrorQuestReward(Player* master, Quest const* quest, Object* questGiver);
+    bool QuestRewardsFit(Quest const* quest, uint32 rewardItem) const;
     // Skip a spell that just failed to cast so the rotation moves on to its next pick.
     void BackOffSpell(uint32 spellId);
     bool IsSpellBackedOff(uint32 spellId) const;
@@ -206,7 +207,8 @@ private:
     bool HandleAutoQuesting();
     bool TryGossipForVendorOrQuest(Creature* npc, bool wantVendor, bool wantQuest);
     bool SelectGossipOption(Creature* npc, uint32 gossipListId);
-    uint32 BestRewardIndex(Quest const* quest) const;
+    // The reward choice to take, as its item id (what RewardQuest expects), 0 when none.
+    uint32 BestRewardItem(Quest const* quest) const;
     bool TravelToVendorHub(bool preferRepair);
     bool TravelToQuestObjective();
     bool TravelToNearbyQuestgiver();
