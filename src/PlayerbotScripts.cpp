@@ -214,6 +214,7 @@ public:
             { "remove", rbac::RBAC_PERM_COMMAND_GM, true, &HandlePlayerbotRemoveCommand, "", },
             { "summon", rbac::RBAC_PERM_COMMAND_GM, false, &HandlePlayerbotSummonCommand, "", },
             { "list",   rbac::RBAC_PERM_COMMAND_GM, true, &HandlePlayerbotListCommand,   "", },
+            { "alts",   rbac::RBAC_PERM_COMMAND_GM, false, &HandlePlayerbotAltsCommand,  "", },
             { "reload", rbac::RBAC_PERM_COMMAND_GM, true, &HandlePlayerbotReloadCommand, "", },
             { "create", rbac::RBAC_PERM_COMMAND_GM, true, &HandlePlayerbotCreateCommand, "", },
             { "wipe",   rbac::RBAC_PERM_COMMAND_GM, true, &HandlePlayerbotWipeCommand,   "", },
@@ -869,6 +870,41 @@ public:
                 choiceNote.c_str(), queued);
         else
             handler->PSendSysMessage("Initialized yourself%s.", choiceNote.c_str());
+        return true;
+    }
+
+    // .playerbots alts: the characters of the issuer's own account, for SquidBots
+    // Lite's My alts (an addon cannot list them). Deleted characters are gone from
+    // the account (a soft delete moves them to account 0), so they are not listed.
+    // Output, one system message each:
+    //   "Account characters: N"
+    //   "  Name (level L, class C, online|offline)"   (C = class id)
+    static bool HandlePlayerbotAltsCommand(ChatHandler* handler, char const* /*args*/)
+    {
+        WorldSession* session = handler->GetSession();
+        if (!session)
+        {
+            handler->SendSysMessage("This command must be used in-game.");
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
+        QueryResult result = CharacterDatabase.PQuery(
+            "SELECT guid, name, level, class FROM characters WHERE account = %u ORDER BY name",
+            session->GetAccountId());
+
+        handler->PSendSysMessage("Account characters: %u", result ? uint32(result->GetRowCount()) : 0u);
+        if (!result)
+            return true;
+
+        do
+        {
+            Field* fields = result->Fetch();
+            uint64 const guid = MAKE_NEW_GUID(fields[0].GetUInt32(), 0, HIGHGUID_PLAYER);
+            bool const online = ObjectAccessor::FindPlayer(guid) != nullptr;
+            handler->PSendSysMessage("  %s (level %u, class %u, %s)", fields[1].GetString().c_str(),
+                uint32(fields[2].GetUInt8()), uint32(fields[3].GetUInt8()), online ? "online" : "offline");
+        } while (result->NextRow());
         return true;
     }
 

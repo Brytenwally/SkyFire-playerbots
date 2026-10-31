@@ -104,6 +104,9 @@ anonymous namespace; free functions there are file-local.
 - `quests all|completed|incompleted|summary`: `PlayerbotAI::HandleQuestListCommand`
   (AC ListQuestsAction, plus objective progress). Bare `quests` stays
   SkyFire's accept / turn in. AC's `travel` variants need TravelMgr (absent).
+- `.playerbots alts` (GM): the issuer's account characters, `Account characters: N`
+  then `  Name (level L, class C, online|offline)`; SquidBots Lite's My alts parses
+  that exact text (keep the wording).
 - `.playerbots add` is async (`BeginSpawnBot` + `ProcessPendingLogins`, paced
   by `RandomBots.LoginsPerTick`); `Bot 'X' logged in.` is sent to the issuer
   by `NotifyAddResult` when the character is loaded. SquidBots Lite parses that
