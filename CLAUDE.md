@@ -207,6 +207,11 @@ anonymous namespace; free functions there are file-local.
   loaded. Owner's rule: the logic lives in the module (DestinyWeaverItems.cpp), the core only
   keeps hooks. The `.debug itemlevel` test that proved it was removed.
 
+- Inspect (`Player::SendInspectResult`): the packet now carries each item's random property,
+  suffix factor and modifiers (reforge, transmog, upgrade: byte size, mask, values), as the
+  Legends of Azeroth 5.4.8 core does. Before, other players saw raised items at their base
+  level (owner's report).
+
 - Database setup (`src/server/shared/Database/DatabaseSetup/`): updates the
   base SQL already records in `skyfire_db_updates` are skipped instead of
   re-run (fresh characters DB failed with "Duplicate entry
