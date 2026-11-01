@@ -207,6 +207,10 @@ anonymous namespace; free functions there are file-local.
   loaded. Owner's rule: the logic lives in the module (DestinyWeaverItems.cpp), the core only
   keeps hooks. The `.debug itemlevel` test that proved it was removed.
 
+- Dungeon finder level hook (`LocalLevelScaling::QueueAboveMaxLevelOwner`, in `LFGMgr::
+  GetLockedDungeons` and `GetRandomAndSeasonalDungeons`): Destiny Weaver keeps normal
+  dungeons queueable past their maximum level for scaled characters.
+
 - Inspect (`Player::SendInspectResult`): the packet now carries each item's random property,
   suffix factor and modifiers (reforge, transmog, upgrade: byte size, mask, values), as the
   Legends of Azeroth 5.4.8 core does. Before, other players saw raised items at their base
